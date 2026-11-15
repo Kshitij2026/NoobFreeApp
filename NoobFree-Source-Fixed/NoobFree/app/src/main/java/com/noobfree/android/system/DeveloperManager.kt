@@ -7,8 +7,15 @@ import com.noobfree.android.data.CommandExecutor
 
 class DeveloperManager(
     private val contentResolver: ContentResolver,
-    private val commandExecutor: CommandExecutor
+    private val commandExecutor: CommandExecutor,
+    // Injectable so local JVM tests do not depend on Android framework Build fields.
+    private val manufacturerProvider: () -> String = { Build.MANUFACTURER }
 ) {
+    private fun manufacturerName(): String =
+        runCatching { manufacturerProvider() }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: "Unknown"
     companion object {
         const val CMD_GET_DEV_OPTIONS = "settings get global development_settings_enabled"
         const val CMD_ENABLE_DEV_OPTIONS = "settings put global development_settings_enabled 1"
@@ -133,7 +140,8 @@ class DeveloperManager(
     }
 
     fun getManufacturerCompatibilityNote(): String {
-        val mfr = Build.MANUFACTURER.lowercase()
+        val manufacturer = manufacturerName()
+        val mfr = manufacturer.lowercase()
         return when {
             mfr.contains("nothing") ->
                 "Nothing OS (e.g., Nothing Phone 3a): Standard AOSP Settings.Global flag supported cleanly via Shizuku."
@@ -146,12 +154,12 @@ class DeveloperManager(
             mfr.contains("google") ->
                 "Pixel / Stock Android: Full native compatibility with Settings.Global and Shizuku UserService."
             else ->
-                "${Build.MANUFACTURER}: Uses standard AOSP development_settings_enabled flag; OEM MDM policies may apply."
+                "$manufacturer: Uses standard AOSP development_settings_enabled flag; OEM MDM policies may apply."
         }
     }
 
     private fun getManufacturerRestrictionHint(): String {
-        val mfr = Build.MANUFACTURER.lowercase()
+        val mfr = manufacturerName().lowercase()
         return when {
             mfr.contains("xiaomi") || mfr.contains("redmi") ->
                 "On HyperOS/MIUI, ensure 'Disable permission monitoring' is enabled or no MDM lock is active."
