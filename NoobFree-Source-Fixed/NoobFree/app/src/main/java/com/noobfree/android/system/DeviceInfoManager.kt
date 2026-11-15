@@ -12,6 +12,9 @@ import kotlin.math.roundToInt
 
 class DeviceInfoManager(private val context: Context) {
 
+    private fun safeBuildString(value: () -> String): String =
+        runCatching { value() }.getOrNull()?.takeIf { it.isNotBlank() } ?: "Unknown"
+
     fun getDeviceInfo(): DeviceHardwareInfo {
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val memInfo = ActivityManager.MemoryInfo()
@@ -42,9 +45,9 @@ class DeviceInfoManager(private val context: Context) {
         val marketName = detectMarketName()
 
         return DeviceHardwareInfo(
-            manufacturer = Build.MANUFACTURER.replaceFirstChar { it.titlecase(Locale.US) },
-            brand = Build.BRAND.replaceFirstChar { it.titlecase(Locale.US) },
-            model = Build.MODEL,
+            manufacturer = safeBuildString { Build.MANUFACTURER }.replaceFirstChar { it.titlecase(Locale.US) },
+            brand = safeBuildString { Build.BRAND }.replaceFirstChar { it.titlecase(Locale.US) },
+            model = safeBuildString { Build.MODEL },
             deviceCodename = Build.DEVICE,
             marketName = marketName,
             osSkinName = osSkin,
@@ -65,20 +68,22 @@ class DeviceInfoManager(private val context: Context) {
     }
 
     private fun detectMarketName(): String {
-        val model = Build.MODEL
-        val device = Build.DEVICE.lowercase(Locale.US)
-        val mfr = Build.MANUFACTURER.lowercase(Locale.US)
+        val model = safeBuildString { Build.MODEL }
+        val device = safeBuildString { Build.DEVICE }.lowercase(Locale.US)
+        val manufacturer = safeBuildString { Build.MANUFACTURER }
+        val mfr = manufacturer.lowercase(Locale.US)
         return when {
             mfr.contains("nothing") && (device.contains("asteroids") || model.contains("A059", ignoreCase = true)) ->
                 "Nothing Phone (3a)"
             mfr.contains("nothing") ->
                 "Nothing $model ($device)"
-            else -> "${Build.MANUFACTURER} $model"
+            else -> "$manufacturer $model"
         }
     }
 
     private fun detectOsSkin(): String {
-        val mfr = Build.MANUFACTURER.lowercase(Locale.US)
+        val manufacturer = safeBuildString { Build.MANUFACTURER }
+        val mfr = manufacturer.lowercase(Locale.US)
         return when {
             mfr.contains("nothing") -> "Nothing OS"
             mfr.contains("samsung") -> "Samsung One UI"
@@ -87,7 +92,7 @@ class DeviceInfoManager(private val context: Context) {
             mfr.contains("oppo") -> "ColorOS"
             mfr.contains("realme") -> "realme UI"
             mfr.contains("google") -> "Pixel / Stock AOSP"
-            else -> "Android (${Build.MANUFACTURER})"
+            else -> "Android ($manufacturer)"
         }
     }
 
