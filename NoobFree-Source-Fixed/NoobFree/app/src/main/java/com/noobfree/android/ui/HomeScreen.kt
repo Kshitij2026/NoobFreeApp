@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.Animation
 import androidx.compose.material.icons.outlined.DeveloperMode
 import androidx.compose.material.icons.outlined.Info
@@ -61,7 +62,8 @@ fun HomeScreen(
     onNavigateToDeveloper: () -> Unit,
     onNavigateToAnimation: () -> Unit,
     onNavigateToDeviceInfo: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToApps: () -> Unit
 ) {
     val pendingBg = uiState.pendingBackgroundLimitConfirmation
     if (pendingBg != null) {
@@ -136,6 +138,25 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+        }
+
+        item {
+            ControlCard(
+                title = "App & Restriction Manager",
+                subtitle = "New · App inventory, bloatware review and policy checks",
+                icon = Icons.Outlined.Apps,
+                badgeText = "BETA",
+                badgeColor = MaterialTheme.colorScheme.primary
+            ) {
+                Text(
+                    "Scan installed apps, inspect wallpaper restrictions and open app settings. No changes are made automatically.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(onClick = onNavigateToApps, shape = RoundedCornerShape(12.dp)) {
+                    Text("Open App Manager")
+                }
             }
         }
 
@@ -299,8 +320,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AnimationManager.PRESET_SCALES.forEach { preset ->
-                        val uniformScale = anim.uniformScale
-                        val selected = uniformScale?.let { abs(it - preset) < 0.01f } ?: false
+                        val selected = anim.uniformScale != null && abs(anim.uniformScale - preset) < 0.01f
                         FilterChip(
                             selected = selected,
                             onClick = { viewModel.setAnimationScale(preset) },

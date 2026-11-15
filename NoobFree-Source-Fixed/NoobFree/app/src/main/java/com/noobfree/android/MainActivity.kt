@@ -24,6 +24,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.noobfree.android.ui.AppManagementScreen
 import com.noobfree.android.ui.AnimationScreen
 import com.noobfree.android.ui.DeveloperScreen
 import com.noobfree.android.ui.DeviceInfoScreen
@@ -93,7 +94,8 @@ private fun NoobFreeNavHost(
                 onNavigateToDeveloper = { navController.navigate("developer") },
                 onNavigateToAnimation = { navController.navigate("animation") },
                 onNavigateToDeviceInfo = { navController.navigate("device") },
-                onNavigateToSettings = { navController.navigate("settings") }
+                onNavigateToSettings = { navController.navigate("settings") },
+                onNavigateToApps = { navController.navigate("apps") }
             )
         }
         composable("developer") {
@@ -116,6 +118,9 @@ private fun NoobFreeNavHost(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
+        }
+        composable("apps") {
+            AppManagementScreen(onBack = { navController.popBackStack() })
         }
         composable("settings") {
             SettingsScreen(
