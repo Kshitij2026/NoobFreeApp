@@ -121,6 +121,18 @@ class DeveloperManagerTest {
         assertEquals(BackgroundProcessLimit.AT_MOST_2, outcome.data)
     }
 
+
+    @Test
+    fun `manufacturer compatibility note handles unavailable manufacturer`() {
+        val resolver = mockk<ContentResolver>(relaxed = true)
+        val executor = FakeCommandExecutor(ready = true)
+        val manager = DeveloperManager(resolver, executor) { "" }
+
+        val note = manager.getManufacturerCompatibilityNote()
+
+        assertTrue(note.contains("Unknown"))
+    }
+
     @Test
     fun `userService command allowlist blocks arbitrary shell commands`() {
         assertTrue(ShizukuUserService.isCommandAllowed("settings put global development_settings_enabled 1"))
