@@ -63,7 +63,8 @@ fun HomeScreen(
     onNavigateToAnimation: () -> Unit,
     onNavigateToDeviceInfo: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToApps: () -> Unit
+    onNavigateToApps: () -> Unit,
+    onNavigateToPrivacy: () -> Unit
 ) {
     val pendingBg = uiState.pendingBackgroundLimitConfirmation
     if (pendingBg != null) {
@@ -156,6 +157,25 @@ fun HomeScreen(
                 )
                 Button(onClick = onNavigateToApps, shape = RoundedCornerShape(12.dp)) {
                     Text("Open App Manager")
+                }
+            }
+        }
+
+        item {
+            ControlCard(
+                title = "Privacy & Admin Inspector",
+                subtitle = "New · Permissions, accessibility and device policy visibility",
+                icon = Icons.Outlined.Security,
+                badgeText = "INSPECT",
+                badgeColor = MaterialTheme.colorScheme.tertiary
+            ) {
+                Text(
+                    "Review overlay access, enabled accessibility services, active administrators and restrictions Android exposes to NoobFree.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(onClick = onNavigateToPrivacy, shape = RoundedCornerShape(12.dp)) {
+                    Text("Open Privacy Inspector")
                 }
             }
         }

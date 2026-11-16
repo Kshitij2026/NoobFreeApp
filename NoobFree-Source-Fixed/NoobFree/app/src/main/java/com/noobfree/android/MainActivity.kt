@@ -29,6 +29,7 @@ import com.noobfree.android.ui.AnimationScreen
 import com.noobfree.android.ui.DeveloperScreen
 import com.noobfree.android.ui.DeviceInfoScreen
 import com.noobfree.android.ui.HomeScreen
+import com.noobfree.android.ui.PrivacyInspectorScreen
 import com.noobfree.android.ui.SettingsScreen
 import com.noobfree.android.ui.theme.NoobFreeTheme
 import com.noobfree.android.viewmodel.MainViewModel
@@ -95,7 +96,8 @@ private fun NoobFreeNavHost(
                 onNavigateToAnimation = { navController.navigate("animation") },
                 onNavigateToDeviceInfo = { navController.navigate("device") },
                 onNavigateToSettings = { navController.navigate("settings") },
-                onNavigateToApps = { navController.navigate("apps") }
+                onNavigateToApps = { navController.navigate("apps") },
+                onNavigateToPrivacy = { navController.navigate("privacy") }
             )
         }
         composable("developer") {
@@ -124,6 +126,9 @@ private fun NoobFreeNavHost(
                 onBack = { navController.popBackStack() },
                 commandExecutor = (androidx.compose.ui.platform.LocalContext.current.applicationContext as NoobFreeApplication).shizukuRepository
             )
+        }
+        composable("privacy") {
+            PrivacyInspectorScreen(onBack = { navController.popBackStack() })
         }
         composable("settings") {
             SettingsScreen(

@@ -1,0 +1,9 @@
+Build status for this consolidated sprint candidate
+
+- Source patches merged: V2.1 privilege/debloat patch, missing-return fix, uninstall/disable patch, wallpaper patch, compiler-error patch, and SettingsScreen syntax patch.
+- Added Privacy & Admin Inspector screen and home navigation entry.
+- Corrected Shizuku command allow-list so the package manager commands issued by PackageOperationManager are actually permitted while arbitrary shell commands remain blocked.
+- Added unit assertions for allowed package commands and command-injection rejection.
+- Static Kotlin parser check: no syntax/"expecting" diagnostics were emitted for the modified Compose/service files when checked without the Android dependency classpath.
+- Regex behaviour check: expected package commands match; command-injection examples do not.
+- Full Android Gradle build and physical-device testing have NOT been run in this environment because Gradle and the Android SDK are not installed here. GitHub Actions remains the required full build verification.

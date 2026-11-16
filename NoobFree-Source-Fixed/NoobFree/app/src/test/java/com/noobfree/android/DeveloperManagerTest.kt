@@ -139,5 +139,10 @@ class DeveloperManagerTest {
         assertTrue(ShizukuUserService.isCommandAllowed("settings put global window_animation_scale 0.5"))
         assertFalse(ShizukuUserService.isCommandAllowed("rm -rf /sdcard"))
         assertFalse(ShizukuUserService.isCommandAllowed("settings put global development_settings_enabled 1; reboot"))
+        assertTrue(ShizukuUserService.isCommandAllowed("pm disable-user --user 0 com.example.app"))
+        assertTrue(ShizukuUserService.isCommandAllowed("pm enable com.example.app"))
+        assertTrue(ShizukuUserService.isCommandAllowed("pm list packages -d com.example.app"))
+        assertFalse(ShizukuUserService.isCommandAllowed("pm disable-user --user 0 com.example.app; reboot"))
+        assertFalse(ShizukuUserService.isCommandAllowed("pm disable-user --user 0 com.example.app && rm -rf /"))
     }
 }

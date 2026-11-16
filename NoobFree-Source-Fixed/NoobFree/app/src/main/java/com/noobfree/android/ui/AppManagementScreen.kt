@@ -58,8 +58,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private data class ScannedApp(
-    val label: String, val packageName: String, val isSystem: Boolean,
-    val isEnabled: Boolean, val category: String
+    val label: String,
+    val packageName: String,
+    val isSystem: Boolean,
+    val isUpdatedSystem: Boolean,
+    val isEnabled: Boolean,
+    val category: String
 )
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -79,6 +83,48 @@ fun AppManagementScreen(onBack: () -> Unit, commandExecutor: CommandExecutor) {
     var isDeviceOwner by remember { mutableStateOf(false) }
     var isProfileOwner by remember { mutableStateOf(false) }
     var wallpaperBusy by remember { mutableStateOf(false) }
+    val wallpaperPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            wallpaperBusy = true
+            scope.launch {
+                val outcome = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            BitmapFactory.decodeStream(input, null, bounds)
+                        } ?: error("Android did not grant access to the selected image URI.")
+                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                            error("The selected file is not a readable image.")
+                        }
+                        var sampleSize = 1
+                        while ((bounds.outWidth / sampleSize > 3072 || bounds.outHeight / sampleSize > 3072) && sampleSize < 8) {
+                            sampleSize *= 2
+                        }
+                        val sample = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                        val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
+                            BitmapFactory.decodeStream(input, null, sample)
+                        } ?: error("The selected image could not be decoded. Try a local JPG or PNG file.")
+                        try {
+                            WallpaperManager.getInstance(context).setBitmap(
+                                bitmap, null, true, WallpaperManager.FLAG_SYSTEM
+                            )
+                        } finally {
+                            bitmap.recycle()
+                        }
+                    }
+                }
+                resultMessage = if (outcome.isSuccess) {
+                    "Home-screen wallpaper updated successfully."
+                } else {
+                    "Couldn't set wallpaper: ${outcome.exceptionOrNull()?.localizedMessage ?: "Android rejected the image"}"
+                }
+                wallpaperBusy = false
+            }
+        }
+    }
+
     fun scan() {
         try {
             val installed = if (Build.VERSION.SDK_INT >= 33) {
@@ -96,7 +142,14 @@ fun AppManagementScreen(onBack: () -> Unit, commandExecutor: CommandExecutor) {
                     system -> "Manufacturer / system"
                     else -> "User-installed"
                 }
-                ScannedApp(packageManager.getApplicationLabel(info).toString(), info.packageName, system, info.enabled, category)
+                ScannedApp(
+                    label = packageManager.getApplicationLabel(info).toString(),
+                    packageName = info.packageName,
+                    isSystem = system,
+                    isUpdatedSystem = (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0,
+                    isEnabled = info.enabled,
+                    category = category
+                )
             }.sortedWith(compareBy<ScannedApp> { !it.isSystem }.thenBy { it.label.lowercase() }))
             scanError = null
         } catch (e: Exception) { scanError = "Couldn't scan apps: ${e.localizedMessage ?: "unknown error"}" }
@@ -106,85 +159,6 @@ fun AppManagementScreen(onBack: () -> Unit, commandExecutor: CommandExecutor) {
         isDeviceOwner = dpm?.isDeviceOwnerApp(context.packageName) == true
         isProfileOwner = dpm?.isProfileOwnerApp(context.packageName) == true
     }
-
-
-    var uninstallingPackage by remember { mutableStateOf<String?>(null) }
-    val uninstallLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        // The package installer usually returns after the user confirms or cancels.
-        // Verify the actual package state instead of trusting its result code.
-        val lastPackage = uninstallingPackage
-        if (lastPackage != null) {
-            val stillInstalled = runCatching {
-                if (Build.VERSION.SDK_INT >= 33) {
-                    packageManager.getApplicationInfo(lastPackage, PackageManager.ApplicationInfoFlags.of(0))
-                } else {
-                    @Suppress("DEPRECATION") packageManager.getApplicationInfo(lastPackage, 0)
-                }
-                true
-            }.getOrDefault(false)
-            resultMessage = if (stillInstalled) {
-                "Returned from Android's installer. $lastPackage is still installed; the uninstall may have been cancelled or not permitted."
-            } else {
-                "Successfully removed $lastPackage."
-            }
-            uninstallingPackage = null
-            scan()
-        }
-    }
-
-    val wallpaperPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) {
-            resultMessage = "No image was selected. Wallpaper was not changed."
-        } else {
-            wallpaperBusy = true
-            resultMessage = "Image selected. Applying home-screen wallpaper…"
-            scope.launch {
-                val outcome = withContext(Dispatchers.IO) {
-                    try {
-                        val resolver = context.contentResolver
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                            ?: error("Android could not open the selected image.")
-                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                            error("The selected file is not a supported image.")
-                        }
-                        val display = context.resources.displayMetrics
-                        val targetWidth = display.widthPixels.coerceAtLeast(1)
-                        val targetHeight = display.heightPixels.coerceAtLeast(1)
-                        var sample = 1
-                        val sourceMax = maxOf(bounds.outWidth, bounds.outHeight)
-                        val targetMax = maxOf(targetWidth, targetHeight)
-                        while (sourceMax / (sample * 2) >= targetMax) {
-                            sample *= 2
-                        }
-                        val options = BitmapFactory.Options().apply { inSampleSize = sample }
-                        val bitmap = resolver.openInputStream(uri)?.use {
-                            BitmapFactory.decodeStream(it, null, options)
-                        } ?: error("The selected image could not be decoded.")
-                        try {
-                            WallpaperManager.getInstance(context).setBitmap(
-                                bitmap, null, true, WallpaperManager.FLAG_SYSTEM
-                            )
-                            "success" to "Home-screen wallpaper applied. Check the home screen."
-                        } finally {
-                            bitmap.recycle()
-                        }
-                    } catch (security: SecurityException) {
-                        "error" to "Android blocked the wallpaper change (permission or administrator policy): ${security.message ?: security.javaClass.simpleName}"
-                    } catch (error: Exception) {
-                        "error" to "Wallpaper could not be applied: ${error.message ?: error.javaClass.simpleName}"
-                    }
-                }
-                resultMessage = outcome.second
-                wallpaperBusy = false
-            }
-        }
-    }
-
 
     LaunchedEffect(Unit) { scan() }
     val filtered = apps.filter { (showSystem || !it.isSystem) &&
@@ -220,7 +194,10 @@ fun AppManagementScreen(onBack: () -> Unit, commandExecutor: CommandExecutor) {
                         Row { Icon(Icons.Outlined.Apps, contentDescription = null, tint = MaterialTheme.colorScheme.primary); Text("  Installed applications", fontWeight = FontWeight.SemiBold) }
                         Text("${apps.size} visible apps · ${apps.count { it.isSystem }} system or updated-system apps")
                         Text(if (commandExecutor.isReady()) "Shizuku shell: connected" else "Shizuku shell: not connected — package changes are unavailable")
-                        Text("NoobFree is not Device Owner: ${!isDeviceOwner}; Profile Owner: $isProfileOwner", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "NoobFree management role: ${when { isDeviceOwner -> "Device Owner"; isProfileOwner -> "Profile Owner"; else -> "Standard app (not an owner)" }}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         scanError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
@@ -231,16 +208,13 @@ fun AppManagementScreen(onBack: () -> Unit, commandExecutor: CommandExecutor) {
                         Text("Wallpaper & policy", fontWeight = FontWeight.SemiBold)
                         Text(if (wallpaperRestricted == true) "Wallpaper changes are restricted by a visible user restriction." else "No DISALLOW_SET_WALLPAPER restriction is visible to this app.")
                         Button(
-                            onClick = {
-                                runCatching { wallpaperPicker.launch(arrayOf("image/*")) }
-                                    .onFailure { resultMessage = "Could not open image picker: ${it.message ?: it.javaClass.simpleName}" }
-                            },
+                            onClick = { wallpaperPicker.launch(arrayOf("image/*")) },
                             enabled = wallpaperRestricted != true && !wallpaperBusy
                         ) {
                             Icon(Icons.Outlined.Image, contentDescription = null)
                             Text(if (wallpaperBusy) "  Applying wallpaper…" else "  Choose and apply wallpaper")
                         }
-                        Text("NoobFree decodes the selected image and asks Android to set it as the home-screen wallpaper. Any failure should be shown below.", style = MaterialTheme.typography.bodySmall)
+                        Text("Choose an image and NoobFree will apply it to the home screen. Android or administrator restrictions can still block the change.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -257,40 +231,41 @@ fun AppManagementScreen(onBack: () -> Unit, commandExecutor: CommandExecutor) {
                             val protected = operationManager.isProtected(app.packageName)
                             Button(
                                 onClick = { pending = app },
-                                enabled = !protected && commandExecutor.isReady()
+                                enabled = !protected && !app.isSystem && commandExecutor.isReady()
                             ) {
                                 Text(if (app.isEnabled) "Disable" else "Enable")
                             }
                             TextButton(onClick = {
                                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}")))
                             }) { Text("App info") }
-                            if (app.packageName != context.packageName) TextButton(onClick = {
-                                val warning = if (app.isSystem) {
-                                    "${app.label} is a preinstalled/system app. Android may only offer to remove its updates, or may refuse removal."
-                                } else {
-                                    "Android will ask you to confirm removal of ${app.label}."
-                                }
-                                resultMessage = warning
+                            if (!app.isSystem || app.isUpdatedSystem) TextButton(onClick = {
                                 val uninstallIntent = Intent(
                                     Intent.ACTION_DELETE,
                                     Uri.parse("package:${app.packageName}")
-                                )
-                                uninstallingPackage = app.packageName
-                                runCatching { uninstallLauncher.launch(uninstallIntent) }
-                                    .onFailure { error ->
-                                        uninstallingPackage = null
-                                        resultMessage = when (error) {
-                                            is android.content.ActivityNotFoundException ->
-                                                "No Android package-uninstall screen is available. Open App info and try uninstalling there."
-                                            is SecurityException ->
-                                                "Android denied the uninstall request: ${error.message ?: "permission or administrator policy"}"
-                                            else -> "Couldn't open Android's uninstall screen: ${error.message ?: error.javaClass.simpleName}"
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                runCatching { context.startActivity(uninstallIntent) }
+                                    .onSuccess {
+                                        resultMessage = if (app.isUpdatedSystem) {
+                                            "Android's Remove updates confirmation was opened for ${app.label}. Confirm there if you want to continue."
+                                        } else {
+                                            "Android's uninstall confirmation was opened for ${app.label}. Confirm there to complete removal."
                                         }
                                     }
-                            }) { Text(if (app.isSystem) "Remove updates" else "Uninstall") }
+                                    .onFailure { error ->
+                                        resultMessage = when (error) {
+                                            is android.content.ActivityNotFoundException ->
+                                                "Android could not find the system uninstall screen. Open App info and try uninstalling there."
+                                            is SecurityException ->
+                                                "Android denied the uninstall request. The app may be protected by device policy."
+                                            else -> "Couldn't open uninstall screen: ${error.localizedMessage ?: error.javaClass.simpleName}"
+                                        }
+                                    }
+                            }) { Text(if (app.isUpdatedSystem) "Remove updates" else "Uninstall") }
                         }
                         if (operationManager.isProtected(app.packageName)) {
                             Text("Disable is blocked by NoobFree's safety protection.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (app.isSystem) {
+                            Text("System-package changes are locked until NoobFree has a verified device-specific safety catalogue.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else if (!commandExecutor.isReady()) {
                             Text("Disable/Enable requires an authorized Shizuku shell in this build.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
