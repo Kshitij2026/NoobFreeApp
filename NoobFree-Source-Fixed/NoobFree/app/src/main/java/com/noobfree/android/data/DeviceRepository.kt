@@ -4,18 +4,26 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.noobfree.android.system.AdminPolicyManager
 import com.noobfree.android.system.AnimationManager
 import com.noobfree.android.system.AnimationState
 import com.noobfree.android.system.BackgroundProcessLimit
+import com.noobfree.android.system.CapabilityManager
 import com.noobfree.android.system.DebugManager
 import com.noobfree.android.system.DebugState
 import com.noobfree.android.system.DeveloperManager
 import com.noobfree.android.system.DeveloperOptionsState
+import com.noobfree.android.system.DeviceCapabilities
 import com.noobfree.android.system.DeviceHardwareInfo
 import com.noobfree.android.system.DeviceInfoManager
+import com.noobfree.android.system.DeviceManagementReport
 import com.noobfree.android.system.OperationOutcome
 import com.noobfree.android.system.RefreshRateInfo
 import com.noobfree.android.system.RefreshRateManager
+import com.noobfree.android.system.WallpaperApplyOutcome
+import com.noobfree.android.system.WallpaperDestination
+import com.noobfree.android.system.WallpaperHelper
+import com.noobfree.android.system.WallpaperPreflightState
 
 class DeviceRepository(
     private val context: Context,
@@ -23,7 +31,10 @@ class DeviceRepository(
     val animationManager: AnimationManager,
     val debugManager: DebugManager,
     val refreshRateManager: RefreshRateManager,
-    val deviceInfoManager: DeviceInfoManager
+    val deviceInfoManager: DeviceInfoManager,
+    val adminPolicyManager: AdminPolicyManager,
+    val wallpaperHelper: WallpaperHelper,
+    val capabilityManager: CapabilityManager
 ) {
     suspend fun readDeveloperOptionsState(): DeveloperOptionsState =
         developerManager.getDeveloperOptionsState()
@@ -55,6 +66,18 @@ class DeviceRepository(
     fun readDeviceHardwareInfo(): DeviceHardwareInfo =
         deviceInfoManager.getDeviceInfo()
 
+    fun readDeviceManagementReport(): DeviceManagementReport =
+        adminPolicyManager.inspectDeviceManagement()
+
+    fun readCapabilities(shizukuUid: Int? = null): DeviceCapabilities =
+        capabilityManager.inspect(shizukuUid)
+
+    fun readWallpaperPreflight(): WallpaperPreflightState =
+        wallpaperHelper.checkEligibility()
+
+    suspend fun applyWallpaper(uri: Uri, destination: WallpaperDestination): WallpaperApplyOutcome =
+        wallpaperHelper.applyWallpaperFromUri(uri, destination)
+
     fun openDeveloperOptionsSettings(): Boolean = launchSettingsIntent(
         Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
         Intent(Settings.ACTION_SETTINGS)
@@ -79,6 +102,9 @@ class DeviceRepository(
     fun openSystemSettings(): Boolean = launchSettingsIntent(
         Intent(Settings.ACTION_SETTINGS)
     )
+
+    fun openDeviceAdminSettings(): Boolean =
+        adminPolicyManager.openDeviceAdminSettings()
 
     fun openAppDetailsSettings(): Boolean = launchSettingsIntent(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

@@ -1,5 +1,6 @@
 package com.noobfree.android.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -7,11 +8,14 @@ import com.noobfree.android.data.DeviceRepository
 import com.noobfree.android.data.OperationLogEntry
 import com.noobfree.android.data.ShizukuRepository
 import com.noobfree.android.system.BackgroundProcessLimit
+import com.noobfree.android.system.WallpaperDestination
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,6 +52,12 @@ class MainViewModel(
             val bgLimit = deviceRepository.readBackgroundProcessLimit()
             val refreshInfo = deviceRepository.readRefreshRateInfo()
             val hwInfo = deviceRepository.readDeviceHardwareInfo()
+            val mgmtReport = withContext(Dispatchers.IO) {
+                deviceRepository.readDeviceManagementReport()
+            }
+            val uid = _uiState.value.shizukuStatus.serviceUid.takeIf { it >= 0 }
+            val caps = deviceRepository.readCapabilities(uid)
+            val wpPreflight = deviceRepository.readWallpaperPreflight()
 
             _uiState.update {
                 it.copy(
@@ -57,7 +67,10 @@ class MainViewModel(
                     debugState = debugState,
                     backgroundProcessLimit = bgLimit,
                     refreshRateInfo = refreshInfo,
-                    deviceHardwareInfo = hwInfo
+                    deviceHardwareInfo = hwInfo,
+                    managementReport = mgmtReport,
+                    capabilities = caps,
+                    wallpaperPreflight = wpPreflight
                 )
             }
         }
@@ -140,6 +153,29 @@ class MainViewModel(
         }
     }
 
+    fun applyWallpaper(uri: Uri, destination: WallpaperDestination) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExecutingAction = true, bannerMessage = null) }
+            val outcome = deviceRepository.applyWallpaper(uri, destination)
+            val wpPreflight = deviceRepository.readWallpaperPreflight()
+            _uiState.update {
+                it.copy(
+                    isExecutingAction = false,
+                    wallpaperPreflight = wpPreflight,
+                    bannerMessage = outcome.message,
+                    bannerIsError = !outcome.success
+                )
+            }
+            appendLog(
+                category = "Wallpaper",
+                action = "Apply ${destination.label}",
+                command = null,
+                success = outcome.success,
+                detail = outcome.message
+            )
+        }
+    }
+
     fun requestBackgroundProcessLimitChange(limit: BackgroundProcessLimit) {
         _uiState.update { it.copy(pendingBackgroundLimitConfirmation = limit) }
     }
@@ -172,6 +208,10 @@ class MainViewModel(
         }
     }
 
+    fun showBanner(message: String, isError: Boolean = false) {
+        _uiState.update { it.copy(bannerMessage = message, bannerIsError = isError) }
+    }
+
     fun dismissBanner() {
         _uiState.update { it.copy(bannerMessage = null) }
     }
@@ -181,7 +221,7 @@ class MainViewModel(
         if (!opened) {
             _uiState.update {
                 it.copy(
-                    bannerMessage = "Unable to open Developer Options directly. Enable Developer Options first.",
+                    bannerMessage = "Unable to open Developer Options directly. Use the 7-Tap About Tablet guide first.",
                     bannerIsError = true
                 )
             }
@@ -198,6 +238,24 @@ class MainViewModel(
 
     fun openDeviceInfoSettings() {
         deviceRepository.openDeviceInfoSettings()
+        appendLog(
+            category = "Developer Options",
+            action = "Open About Tablet (7-Tap Flow)",
+            command = "android.settings.DEVICE_INFO_SETTINGS",
+            success = true,
+            detail = "Opened Android Device Info settings for manual 7-tap Build Number activation."
+        )
+    }
+
+    fun openDeviceAdminSettings() {
+        deviceRepository.openDeviceAdminSettings()
+        appendLog(
+            category = "Device Policy",
+            action = "Open Device Admin Settings",
+            command = "android.settings.DEVICE_ADMIN_SETTINGS",
+            success = true,
+            detail = "Opened Android Device Administrators screen."
+        )
     }
 
     fun openSystemSettings() {
@@ -210,6 +268,12 @@ class MainViewModel(
 
     fun openShizukuApp() {
         shizukuRepository.openShizukuApp()
+    }
+
+    fun recordExternalOperation(entry: OperationLogEntry) {
+        _uiState.update { state ->
+            state.copy(operationHistory = (listOf(entry) + state.operationHistory).take(50))
+        }
     }
 
     private fun appendLog(

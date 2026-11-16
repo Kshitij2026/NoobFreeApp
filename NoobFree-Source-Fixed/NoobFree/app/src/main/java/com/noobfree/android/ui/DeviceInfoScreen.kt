@@ -6,29 +6,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DeveloperBoard
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.noobfree.android.ui.theme.GlassPalette
 import com.noobfree.android.viewmodel.MainUiState
 import com.noobfree.android.viewmodel.MainViewModel
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceInfoScreen(
     uiState: MainUiState,
@@ -38,35 +30,30 @@ fun DeviceInfoScreen(
     val hw = uiState.deviceHardwareInfo
     val rr = uiState.refreshRateInfo
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Device, Display & GPU") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
+    GlassScreenScaffold(
+        title = "Device, Display & GPU Telemetry",
+        subtitle = hw?.marketName ?: "Hardware & Runtime Inspector",
+        onBack = onBack
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (hw != null) {
                 item {
                     ControlCard(
                         title = hw.marketName,
-                        subtitle = "${hw.osSkinName} • Android ${hw.androidVersion}",
-                        icon = Icons.Outlined.PhoneAndroid
+                        subtitle = "${hw.osSkinName} • Runtime Android ${hw.androidVersion}",
+                        icon = Icons.Outlined.PhoneAndroid,
+                        badgeText = "API ${hw.sdkInt}",
+                        badgeColor = GlassPalette.CyanGlow
                     ) {
-                        KeyValueRow("Manufacturer", hw.manufacturer)
+                        KeyValueRow("Manufacturer / Brand", "${hw.manufacturer} / ${hw.brand}")
                         KeyValueRow("Model / Codename", "${hw.model} (${hw.deviceCodename})")
-                        KeyValueRow("Android / SDK", "Android ${hw.androidVersion} (API ${hw.sdkInt})")
+                        KeyValueRow("Runtime Android / SDK", "Android ${hw.androidVersion} (API ${hw.sdkInt})")
                         KeyValueRow("Security Patch", hw.securityPatch)
                         KeyValueRow("Build ID", hw.buildId)
                     }
@@ -74,17 +61,19 @@ fun DeviceInfoScreen(
 
                 item {
                     ControlCard(
-                        title = "SoC, Memory & Display",
+                        title = "SoC, Memory & Display Panel",
                         subtitle = hw.cpuHardware,
-                        icon = Icons.Outlined.DeveloperBoard
+                        icon = Icons.Outlined.DeveloperBoard,
+                        badgeText = "${hw.cpuCoreCount} CORES",
+                        badgeColor = GlassPalette.VioletGlow
                     ) {
-                        KeyValueRow("SoC / CPU", hw.cpuHardware)
-                        KeyValueRow("CPU Cores", "${hw.cpuCoreCount} cores")
-                        KeyValueRow("ABIs", hw.supportedAbis)
+                        KeyValueRow("SoC / CPU Hardware", hw.cpuHardware)
+                        KeyValueRow("CPU Cores", "${hw.cpuCoreCount} logical cores")
+                        KeyValueRow("Supported ABIs", hw.supportedAbis)
                         KeyValueRow("Total RAM", hw.totalRamFormatted)
                         KeyValueRow("Available RAM", hw.availableRamFormatted)
-                        KeyValueRow("Resolution", hw.screenResolution)
-                        KeyValueRow("Density", "${hw.screenDensityDpi} dpi")
+                        KeyValueRow("Physical Resolution", hw.screenResolution)
+                        KeyValueRow("Screen Density", "${hw.screenDensityDpi} dpi")
                     }
                 }
             }
@@ -92,42 +81,45 @@ fun DeviceInfoScreen(
             item {
                 ControlCard(
                     title = "Display Refresh Modes",
-                    subtitle = "Active: ${rr.activeRefreshRateHz.roundToInt()} Hz",
-                    icon = Icons.Outlined.Speed
+                    subtitle = "Active: ${rr.activeRefreshRateHz.roundToInt()} Hz (Peak: ${rr.peakSupportedHz.roundToInt()} Hz)",
+                    icon = Icons.Outlined.Speed,
+                    badgeText = "${rr.activeRefreshRateHz.roundToInt()} HZ",
+                    badgeColor = GlassPalette.EmeraldGlow
                 ) {
                     rr.supportedModes.forEach { mode ->
                         KeyValueRow(
                             label = "Mode #${mode.modeId} (${mode.width}×${mode.height})",
-                            value = "${mode.refreshRateHz.roundToInt()} Hz${if (mode.isActive) " [Active]" else ""}"
+                            value = "${mode.refreshRateHz.roundToInt()} Hz${if (mode.isActive) " [Active]" else ""}",
+                            valueColor = if (mode.isActive) GlassPalette.CyanGlow else GlassPalette.TextPrimary
                         )
                     }
                     Text(
                         text = rr.explanation,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = GlassPalette.TextSecondary
                     )
                 }
             }
 
             item {
                 ControlCard(
-                    title = "GPU Rendering & Profiling",
+                    title = "GPU Rendering & HWUI Profiling",
                     subtitle = "Hardware-accelerated UI diagnostics",
-                    icon = Icons.Outlined.GraphicEq
+                    icon = Icons.Outlined.GraphicEq,
+                    badgeText = "HWUI",
+                    badgeColor = GlassPalette.CyanGlow
                 ) {
                     Text(
-                        text = "Android exposes Profile HWUI Rendering, Show GPU View Updates, and Force 4x MSAA inside system Developer Options. " +
-                            "NoobFree provides direct navigation rather than modifying restricted SurfaceFlinger debug flags.",
+                        text = "Android exposes Profile HWUI Rendering, Show GPU View Updates, and Force 4x MSAA inside system Developer Options. NoobFree provides direct navigation rather than modifying restricted SurfaceFlinger debug flags.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = GlassPalette.TextSecondary
                     )
-                    OutlinedButton(
+                    GlassPrimaryButton(
+                        text = "Open Developer Options (HWUI Rendering)",
                         onClick = { viewModel.openDeveloperOptionsSettings() },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Open Developer Options (Hardware Accelerated Rendering)")
-                    }
+                        accentColor = GlassPalette.CyanGlow
+                    )
                 }
             }
         }

@@ -1,4 +1,6 @@
 <resources>
     <string name="app_name">NoobFree</string>
-    <string name="app_subtitle">Android Developer Control Center</string>
+    <string name="app_subtitle">Device Policy, App &amp; Debloat Control Center</string>
+    <string name="device_admin_label">NoobFree Security &amp; Reset Controller</string>
+    <string name="device_admin_description">Optional user-approved legacy Device Administrator for immediate screen lock and authorized local factory reset requests. Does not grant Device Owner privileges or override organization policies.</string>
 </resources>

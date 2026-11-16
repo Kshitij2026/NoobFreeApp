@@ -1,5 +1,6 @@
 package com.noobfree.android.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -9,29 +10,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Animation
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.noobfree.android.system.AnimationManager
+import com.noobfree.android.ui.theme.GlassPalette
 import com.noobfree.android.viewmodel.MainUiState
 import com.noobfree.android.viewmodel.MainViewModel
 import kotlin.math.abs
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AnimationScreen(
     uiState: MainUiState,
@@ -39,30 +35,26 @@ fun AnimationScreen(
     onBack: () -> Unit
 ) {
     val anim = uiState.animationState
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Animation Control Center") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
+
+    GlassScreenScaffold(
+        title = "Animation Control Center",
+        subtitle = anim.source,
+        onBack = onBack
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
                 ControlCard(
-                    title = "Active System Scales",
+                    title = "Active System Animation Scales",
                     subtitle = anim.source,
-                    icon = Icons.Outlined.Tune
+                    icon = Icons.Outlined.Tune,
+                    badgeText = anim.uniformScale?.let { "${AnimationManager.formatScaleForShell(it)}x" } ?: "CUSTOM",
+                    badgeColor = GlassPalette.CyanGlow
                 ) {
                     KeyValueRow("window_animation_scale", "${anim.windowScale}x")
                     KeyValueRow("transition_animation_scale", "${anim.transitionScale}x")
@@ -72,9 +64,11 @@ fun AnimationScreen(
 
             item {
                 ControlCard(
-                    title = "Unified Scale Presets",
-                    subtitle = "Applies to all 3 global animation keys",
-                    icon = Icons.Outlined.Animation
+                    title = "Unified Scale Presets (Shizuku)",
+                    subtitle = "Applies and verifies all 3 Settings.Global animation keys",
+                    icon = Icons.Outlined.Animation,
+                    badgeText = if (uiState.shizukuStatus.isReady) "SHIZUKU READY" else "REQUIRES SHIZUKU",
+                    badgeColor = if (uiState.shizukuStatus.isReady) GlassPalette.EmeraldGlow else GlassPalette.AmberGlow
                 ) {
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -88,34 +82,41 @@ fun AnimationScreen(
                                 onClick = { viewModel.setAnimationScale(preset) },
                                 label = {
                                     Text("${AnimationManager.formatScaleForShell(preset)}x")
-                                }
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = GlassPalette.CyanGlow.copy(alpha = 0.24f),
+                                    selectedLabelColor = GlassPalette.CyanGlow
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (selected) GlassPalette.CyanGlow else Color.White.copy(alpha = 0.2f)
+                                )
                             )
                         }
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            text = "• 0x: Instant transitions (disables UI animations completely).",
+                            text = "• 0x: Instant transitions (disables window/animator transitions completely).",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = GlassPalette.TextSecondary
                         )
                         Text(
-                            text = "• 0.5x: Snappy UI response while keeping smooth visual cues.",
+                            text = "• 0.5x: Snappy UI response on 2GB/3GB tablets while keeping smooth visual cues.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = GlassPalette.TextSecondary
                         )
                         Text(
                             text = "• 1x: Standard AOSP / OEM default speed.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = GlassPalette.TextSecondary
                         )
                     }
-                    Button(
+                    GlassPrimaryButton(
+                        text = "Restore Default (1x)",
                         onClick = { viewModel.setAnimationScale(1f) },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Restore Default (1x)")
-                    }
+                        accentColor = GlassPalette.CyanGlow
+                    )
                 }
             }
         }

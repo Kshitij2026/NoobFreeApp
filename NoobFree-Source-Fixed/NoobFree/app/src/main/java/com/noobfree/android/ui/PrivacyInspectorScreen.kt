@@ -1,370 +1,600 @@
 package com.noobfree.android.ui
 
-import android.app.AppOpsManager
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
-import android.content.pm.PackageManager
-import android.os.Build
-import android.os.UserManager
-import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.AdminPanelSettings
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Policy
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.Card
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.noobfree.android.system.AdminPolicyManager
+import com.noobfree.android.system.DiscoveredAdminOrManagementApp
+import com.noobfree.android.system.ManagementPrivilegeRole
+import com.noobfree.android.ui.theme.GlassPalette
+import com.noobfree.android.viewmodel.MainUiState
+import com.noobfree.android.viewmodel.MainViewModel
 
-private data class InspectorFinding(val title: String, val status: String, val explanation: String)
-
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun PrivacyInspectorScreen(onBack: () -> Unit) {
+fun PrivacyInspectorScreen(
+    uiState: MainUiState,
+    viewModel: MainViewModel,
+    adminPolicyManager: AdminPolicyManager,
+    onBack: () -> Unit
+) {
     val context = LocalContext.current
-    var findings by remember { mutableStateOf<List<InspectorFinding>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val policyPackage = "com.google.android.apps.work.clouddpc"
-    var policyRole by remember { mutableStateOf("Checking management status…") }
-    var adminPackages by remember { mutableStateOf<List<String>>(emptyList()) }
-    var haloPackages by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var showResetWarning by remember { mutableStateOf(false) }
+    var report by remember { mutableStateOf(uiState.managementReport ?: adminPolicyManager.inspectDeviceManagement()) }
+    var actionFeedbackTitle by remember { mutableStateOf<String?>(null) }
+    var actionFeedbackBody by remember { mutableStateOf<String?>(null) }
+    var actionFeedbackIsError by remember { mutableStateOf(false) }
+    var showResetConfirmation by remember { mutableStateOf(false) }
     var showRecoveryGuide by remember { mutableStateOf(false) }
-    var resetStatus by remember { mutableStateOf<String?>(null) }
+    var pendingDeactivationPackage by remember { mutableStateOf<String?>(null) }
 
-    fun openAdminSettings() {
-        val intent = Intent("android.settings.DEVICE_ADMIN_SETTINGS")
-        runCatching { context.startActivity(intent) }
-            .onFailure { error = "Android admin settings could not be opened: ${it.localizedMessage}" }
-    }
-
-    fun openAppDetails(packageName: String) {
-        runCatching {
-            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-        }.onFailure { error = "Could not open app details for $packageName: ${it.localizedMessage}" }
-    }
-
-    fun requestUninstall(packageName: String) {
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
-        }.onFailure { error = "Android did not allow an uninstall request for $packageName: ${it.localizedMessage}" }
-    }
-
-    fun openPolicyApp() {
-        val launch = context.packageManager.getLaunchIntentForPackage(policyPackage)
-        if (launch != null) {
-            runCatching { context.startActivity(launch) }.onFailure { error = "Could not open Android Device Policy: ${it.localizedMessage}" }
-        } else {
-            runCatching {
-                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$policyPackage")))
-            }.onFailure { error = "Android Device Policy app details could not be opened." }
+    fun rescan() {
+        val fresh = adminPolicyManager.inspectDeviceManagement()
+        report = fresh
+        viewModel.refreshAllStates(showLoading = false)
+        if (pendingDeactivationPackage != null) {
+            val target = fresh.adminAndManagementApps.find { it.packageName == pendingDeactivationPackage }
+            if (target != null && !target.isActiveAdmin) {
+                actionFeedbackTitle = "Administrator Deactivated: ${target.label}"
+                actionFeedbackBody = "${target.label} (${target.packageName}) is no longer an active Device Administrator. You can now tap 'Step 3: Uninstall App' on its card below."
+                actionFeedbackIsError = false
+                pendingDeactivationPackage = null
+            }
         }
     }
 
-    fun requestNoobFreeAdmin() {
-        val component = ComponentName(context, com.noobfree.android.admin.NoobFreeAdminReceiver::class.java)
-        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
-            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                "Optional NoobFree administrator access. This does not make NoobFree Device Owner and cannot remove other administrators.")
-        }
-        runCatching { context.startActivity(intent) }
-            .onFailure { error = "Could not open Android administrator activation: ${it.localizedMessage}" }
+    LaunchedEffect(uiState.managementReport) {
+        uiState.managementReport?.let { report = it }
     }
 
-    fun performAuthorizedReset() {
-        val component = ComponentName(context, com.noobfree.android.admin.NoobFreeAdminReceiver::class.java)
-        val dpm = context.getSystemService(DevicePolicyManager::class.java)
-        try {
-            if (dpm == null || !dpm.isAdminActive(component)) {
-                resetStatus = "NoobFree is not an active administrator. Activate it first, then retry. This still may not be permitted by your device's management policy."
-                return
-            }
-            @Suppress("DEPRECATION")
-            dpm.wipeData(0)
-            // Android takes over and erases the device if this administrator is authorized.
-        } catch (security: SecurityException) {
-            resetStatus = "Android rejected the reset request: ${security.localizedMessage ?: "administrator lacks wipe permission or device policy blocks it"}"
-        } catch (failure: Exception) {
-            resetStatus = "Reset could not be started: ${failure.localizedMessage ?: failure.javaClass.simpleName}"
+    if (showResetConfirmation) {
+        GlassConfirmDialog(
+            title = "Confirm Authorized Factory Reset",
+            confirmLabel = "Execute wipeData(0)",
+            onConfirm = {
+                showResetConfirmation = false
+                val outcome = adminPolicyManager.performAuthorizedFactoryReset()
+                actionFeedbackTitle = outcome.title
+                actionFeedbackBody = outcome.message
+                actionFeedbackIsError = !outcome.success
+                rescan()
+            },
+            onDismiss = { showResetConfirmation = false },
+            accentColor = GlassPalette.RoseGlow
+        ) {
+            Text(
+                text = "1. Permanent Data Erasure: All local apps, photos, downloads, accounts, and user settings on this tablet will be permanently erased.",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "2. Enterprise / Zero-Touch Re-enrollment Warning: If this Acer tablet's serial number or IMEI is registered in Android Zero-Touch Enrollment or an organization's MDM portal (Google Android Device Policy / Halo), performing a factory reset will NOT unenroll it—the tablet will automatically re-download the organization profile when connected to Wi-Fi or cellular data during initial setup.",
+                color = GlassPalette.AmberGlow
+            )
+            Text(
+                text = "3. Android 14–16+ API Boundary: Ordinary legacy Device Administrators may be blocked by Android from calling wipeData(0) unless NoobFree is Device Owner. If Android rejects the call, NoobFree will report the exact SecurityException and offer the System Reset Settings shortcut.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 
+    if (showRecoveryGuide) {
+        GlassConfirmDialog(
+            title = "Recovery-Mode Factory Reset Guide (Acer One 8 T4-82L-G2)",
+            confirmLabel = "I Understand",
+            onConfirm = { showRecoveryGuide = false },
+            onDismiss = { showRecoveryGuide = false },
+            accentColor = GlassPalette.CyanGlow
+        ) {
+            Text(
+                text = "Before proceeding, back up all personal photos and files. Only reset a tablet you personally own.",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text("Step 1: Power the tablet completely OFF and disconnect any USB cable.")
+            Text("Step 2: Enter Android Recovery using your Acer tablet's documented hardware key combination (commonly Power + Volume Up held together until the boot menu or Acer logo appears; consult your Acer One 8 T4-82L-G2 user manual as hardware revisions can vary between Volume Up and Volume Down).")
+            Text("Step 3: If a boot mode micro-menu appears ([Recovery Mode], [Fastboot Mode], [Normal]), use Volume Up to move the arrow to [Recovery Mode] and press Volume Down (or Power, per on-screen legend) to select.")
+            Text("Step 4: If an Android 'No Command' screen appears, hold Power and briefly press Volume Up once to reveal the Android Recovery menu.")
+            Text("Step 5: Use Volume keys to highlight 'Wipe data/factory reset' -> press Power -> select 'Factory data reset' -> 'Reboot system now'.")
+            Text(
+                text = "Important Zero-Touch Warning: Hardware recovery reset wipes local storage but does NOT remove cloud-bound Zero-Touch or FRP enrollment. If the tablet re-enrolls during setup, the issuing organization must release the serial/IMEI in their MDM console.",
+                color = GlassPalette.AmberGlow,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
 
-    fun refresh() {
-        val output = mutableListOf<InspectorFinding>()
-        try {
-            val pm = context.packageManager
-            val appOps = context.getSystemService(AppOpsManager::class.java)
-            val installed = if (Build.VERSION.SDK_INT >= 33) {
-                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION") pm.getInstalledApplications(0)
+    GlassScreenScaffold(
+        title = "Device Policy & Admin Inspector",
+        subtitle = report.overallManagementMode,
+        onBack = onBack,
+        actions = {
+            IconButton(onClick = { rescan() }) {
+                Icon(Icons.Outlined.Refresh, contentDescription = "Rescan", tint = GlassPalette.CyanGlow)
             }
-            haloPackages = installed.mapNotNull { app ->
-                val label = runCatching { pm.getApplicationLabel(app).toString() }.getOrDefault(app.packageName)
-                if (label.contains("halo", ignoreCase = true) || app.packageName.contains("halo", ignoreCase = true)) {
-                    label to app.packageName
-                } else null
-            }.distinctBy { it.second }.sortedBy { it.first.lowercase() }
-            val overlayApps = installed.mapNotNull { app ->
-                val mode = runCatching {
-                    @Suppress("DEPRECATION")
-                    appOps?.checkOpNoThrow(AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW, app.uid, app.packageName)
-                }.getOrNull()
-                if (mode == AppOpsManager.MODE_ALLOWED) app.packageName else null
-            }.sorted()
-            output += InspectorFinding(
-                "Display over other apps",
-                "${overlayApps.size} apps reported as allowed",
-                if (overlayApps.isEmpty()) "No allowed overlay apps were returned by AppOps." else overlayApps.joinToString("\n")
-            )
-
-            val accessibility = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
-            val enabledServices = accessibility?.getEnabledAccessibilityServiceList(
-                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK
-            ).orEmpty().map { service ->
-                "${service.resolveInfo.serviceInfo.packageName}/${service.resolveInfo.serviceInfo.name}"
-            }.distinct().sorted()
-            output += InspectorFinding(
-                "Enabled accessibility services",
-                "${enabledServices.size} enabled services visible",
-                if (enabledServices.isEmpty()) "No enabled accessibility services were returned." else enabledServices.joinToString("\n")
-            )
-
-            val dpm = context.getSystemService(DevicePolicyManager::class.java)
-            val activeAdmins = runCatching { @Suppress("DEPRECATION") dpm?.activeAdmins.orEmpty() }.getOrDefault(emptyList())
-            val policyIsDeviceOwner = runCatching { dpm?.isDeviceOwnerApp(policyPackage) == true }.getOrDefault(false)
-            val policyIsProfileOwner = runCatching { dpm?.isProfileOwnerApp(policyPackage) == true }.getOrDefault(false)
-            val policyIsActiveAdmin = activeAdmins.any { it.packageName == policyPackage }
-            adminPackages = activeAdmins.map { it.packageName }.distinct().sorted()
-            policyRole = when {
-                policyIsDeviceOwner -> "Android Device Policy is Device Owner (fully managed device)"
-                policyIsProfileOwner -> "Android Device Policy is Profile Owner (managed work profile)"
-                policyIsActiveAdmin -> "Android Device Policy is an active legacy device administrator"
-                else -> "Android Device Policy role could not be confirmed from this app"
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Feedback banner if an action was just performed
+            if (actionFeedbackTitle != null && actionFeedbackBody != null) {
+                item {
+                    val accent = if (actionFeedbackIsError) GlassPalette.RoseGlow else GlassPalette.EmeraldGlow
+                    ControlCard(
+                        title = actionFeedbackTitle!!,
+                        subtitle = "Operation Diagnostic Result",
+                        icon = if (actionFeedbackIsError) Icons.Outlined.WarningAmber else Icons.Outlined.CheckCircle,
+                        badgeText = if (actionFeedbackIsError) "BLOCKED / ERROR" else "VERIFIED",
+                        badgeColor = accent
+                    ) {
+                        Text(
+                            text = actionFeedbackBody!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White
+                        )
+                        GlassSecondaryButton(
+                            text = "Dismiss Message",
+                            onClick = {
+                                actionFeedbackTitle = null
+                                actionFeedbackBody = null
+                            }
+                        )
+                    }
+                }
             }
-            output += InspectorFinding(
-                "Google Android Device Policy role",
-                policyRole,
-                "This is a read-only check. Android does not let an ordinary app remove another app's administrator or clear Device Owner status."
-            )
-            output += InspectorFinding(
-                "Active device administrators",
-                "${activeAdmins.size} active admin component(s) visible",
-                if (activeAdmins.isEmpty()) "No active admin components were returned to this app." else activeAdmins.joinToString("\n") { it.flattenToShortString() }
-            )
-            output += InspectorFinding(
-                "NoobFree management role",
-                when {
-                    dpm?.isDeviceOwnerApp(context.packageName) == true -> "NoobFree is Device Owner"
-                    dpm?.isProfileOwnerApp(context.packageName) == true -> "NoobFree is Profile Owner"
-                    else -> "NoobFree is not Device Owner or Profile Owner"
-                },
-                "This check describes NoobFree only. It does not identify every administrator or prove whether another work profile exists."
-            )
 
-            val um = context.getSystemService(UserManager::class.java)
-            val restrictions = listOf(
-                UserManager.DISALLOW_DEBUGGING_FEATURES to "Developer/debugging features",
-                UserManager.DISALLOW_UNINSTALL_APPS to "Uninstall applications",
-                UserManager.DISALLOW_SET_WALLPAPER to "Set wallpaper",
-                UserManager.DISALLOW_INSTALL_APPS to "Install applications",
-                UserManager.DISALLOW_CONFIG_WIFI to "Configure Wi-Fi"
-            )
-            restrictions.forEach { (key, label) ->
-                val restricted = runCatching { um?.hasUserRestriction(key) == true }.getOrDefault(false)
-                output += InspectorFinding(
-                    "Policy: $label",
-                    if (restricted) "Restriction visible" else "No restriction visible",
-                    if (restricted) "Android reports $key for the current user/profile." else "This restriction was not reported for the current user/profile. Other policies may still affect this action."
+            // Section 1: Overall Device Management Mode
+            item {
+                val hasOwner = report.detectedDeviceOwnerPackage != null || report.detectedProfileOwnerPackage != null
+                val badgeColor = when {
+                    hasOwner -> GlassPalette.RoseGlow
+                    report.adminAndManagementApps.any { it.isActiveAdmin } -> GlassPalette.AmberGlow
+                    else -> GlassPalette.EmeraldGlow
+                }
+                ControlCard(
+                    title = report.overallManagementMode,
+                    subtitle = "Live DevicePolicyManager & UserManager Telemetry",
+                    icon = Icons.Outlined.Policy,
+                    badgeText = if (hasOwner) "MANAGED" else "INSPECTED",
+                    badgeColor = badgeColor
+                ) {
+                    Text(
+                        text = report.overallSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = GlassPalette.TextSecondary
+                    )
+                    KeyValueRow(
+                        label = "Device Owner Package",
+                        value = report.detectedDeviceOwnerPackage ?: "None reported to public API",
+                        valueColor = if (report.detectedDeviceOwnerPackage != null) GlassPalette.RoseGlow else GlassPalette.EmeraldGlow
+                    )
+                    KeyValueRow(
+                        label = "Profile Owner Package",
+                        value = report.detectedProfileOwnerPackage ?: "None reported to public API",
+                        valueColor = if (report.detectedProfileOwnerPackage != null) GlassPalette.AmberGlow else GlassPalette.TextPrimary
+                    )
+                    KeyValueRow(
+                        label = "Current User Context",
+                        value = buildString {
+                            append(if (report.isSystemUser) "Primary/System User" else "Secondary User")
+                            append(if (report.isRunningInManagedProfile) " (Managed Work Profile)" else " (Personal Profile)")
+                        }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        GlassPrimaryButton(
+                            text = "Open Android Admin Settings",
+                            onClick = { adminPolicyManager.openDeviceAdminSettings() },
+                            modifier = Modifier.weight(1f),
+                            accentColor = GlassPalette.CyanGlow
+                        )
+                        GlassSecondaryButton(
+                            text = "Recheck Status",
+                            onClick = { rescan() },
+                            icon = Icons.Outlined.Refresh
+                        )
+                    }
+                }
+            }
+
+            // Section 2: Google Android Device Policy & Active Administrators Workflow
+            item {
+                ControlCard(
+                    title = "Administrator & DPC Removal Workflow",
+                    subtitle = "${report.adminAndManagementApps.size} management / admin package(s) inspected",
+                    icon = Icons.Outlined.AdminPanelSettings,
+                    badgeText = "${report.adminAndManagementApps.count { it.isActiveAdmin }} ACTIVE",
+                    badgeColor = GlassPalette.CyanGlow
+                ) {
+                    Text(
+                        text = "Android blocks uninstalling any app while its DeviceAdminReceiver is active ('Can't uninstall active device admin app'). Follow the 3-step workflow on each card below: (1) Deactivate in Android Admin Settings -> (2) Tap Recheck Status -> (3) Tap Uninstall once inactive. If Android greys out 'Deactivate', that app is locked by Device Owner or OEM MDM policy.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GlassPalette.TextSecondary
+                    )
+                }
+            }
+
+            items(report.adminAndManagementApps, key = { "admin_${it.packageName}" }) { app ->
+                AdminPackageWorkflowCard(
+                    app = app,
+                    onOpenAdminSettings = {
+                        pendingDeactivationPackage = app.packageName
+                        adminPolicyManager.openDeviceAdminSettings()
+                    },
+                    onLaunchManagementUi = {
+                        adminPolicyManager.launchManagementApp(app.packageName)
+                    },
+                    onOpenAppDetails = {
+                        adminPolicyManager.openAppDetails(app.packageName)
+                    },
+                    onRecheck = { rescan() },
+                    onRequestUninstall = {
+                        runCatching {
+                            context.startActivity(adminPolicyManager.buildUninstallIntent(app.packageName))
+                        }.onSuccess {
+                            actionFeedbackTitle = "Opened System Uninstall Confirmation"
+                            actionFeedbackBody = "Requested Android PackageInstaller to uninstall ${app.label} (${app.packageName}). Confirm the system dialog, then tap Recheck Status."
+                            actionFeedbackIsError = false
+                        }.onFailure { err ->
+                            actionFeedbackTitle = "Uninstall Request Rejected"
+                            actionFeedbackBody = "Android blocked launching ACTION_DELETE for ${app.packageName}: ${err.localizedMessage ?: err.javaClass.simpleName}"
+                            actionFeedbackIsError = true
+                        }
+                    }
                 )
             }
-            val managedProfile = runCatching { um?.isManagedProfile == true }.getOrDefault(false)
-            output += InspectorFinding(
-                "Current profile context",
-                if (managedProfile) "This app is running in a managed profile" else "This app is not running in a managed profile",
-                "A separate work profile elsewhere on the device cannot be conclusively ruled out by this check."
-            )
-            findings = output
-            error = null
-        } catch (e: Exception) {
-            error = "Some device information could not be read: ${e.localizedMessage ?: e.javaClass.simpleName}"
-            findings = output
+
+            // Section 3: Discovered Halo Applications (Dynamic Discovery)
+            item {
+                ControlCard(
+                    title = "Discovered Halo Suite Packages",
+                    subtitle = if (report.haloApps.isEmpty()) {
+                        "No Halo packages currently installed on this device"
+                    } else {
+                        "${report.haloApps.size} Halo package(s) discovered dynamically"
+                    },
+                    icon = Icons.Outlined.Shield,
+                    badgeText = if (report.haloApps.isEmpty()) "0 FOUND" else "${report.haloApps.size} FOUND",
+                    badgeColor = if (report.haloApps.isEmpty()) GlassPalette.EmeraldGlow else GlassPalette.VioletGlow
+                ) {
+                    Text(
+                        text = "NoobFree inspects every installed package dynamically rather than guessing package names, and checks whether each Halo app (such as Halo Agent, Halo ThreatX, Halo Remote, or Halo Forge) actually registers a DeviceAdminReceiver or is protected by another administrator ('app is required by the device administrator').",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GlassPalette.TextSecondary
+                    )
+                    if (report.haloApps.isEmpty()) {
+                        Text(
+                            text = "No packages matching 'Halo' or 'ThreatX' were returned by PackageManager on this runtime.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White
+                        )
+                    } else {
+                        report.haloApps.forEach { halo ->
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+                            Text(
+                                text = "${halo.label} (${halo.versionName})",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Package: ${halo.packageName} • Role: ${halo.role.badgeLabel}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = GlassPalette.CyanGlow
+                            )
+                            Text(
+                                text = halo.removalGuidance,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = GlassPalette.TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Section 4: NoobFree Optional Device Administrator & Factory Reset
+            item {
+                val active = report.noobFreeIsActiveAdmin
+                ControlCard(
+                    title = "NoobFree Device Administrator & Reset",
+                    subtitle = "Requested XML policies: <force-lock /> and <wipe-data />",
+                    icon = Icons.Outlined.Lock,
+                    badgeText = if (active) "ADMIN ACTIVE" else "ADMIN INACTIVE",
+                    badgeColor = if (active) GlassPalette.CyanGlow else GlassPalette.TextSecondary
+                ) {
+                    Text(
+                        text = "Activating NoobFree as an ordinary Device Administrator allows immediate screen locking and authorized local wipeData(0) requests. It does NOT make NoobFree a Device Owner and cannot remove Google Android Device Policy or Halo Agent.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GlassPalette.TextSecondary
+                    )
+                    KeyValueRow(
+                        label = "NoobFree Admin Receiver",
+                        value = if (active) "Active (Enabled by user)" else "Inactive"
+                    )
+                    KeyValueRow(
+                        label = "NoobFree Owner Role",
+                        value = when {
+                            report.noobFreeIsDeviceOwner -> "Device Owner"
+                            report.noobFreeIsProfileOwner -> "Profile Owner"
+                            else -> "None (Ordinary App)"
+                        }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (!active) {
+                            GlassPrimaryButton(
+                                text = "Activate NoobFree Admin",
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(adminPolicyManager.buildActivateNoobFreeAdminIntent())
+                                    }.onFailure { err ->
+                                        actionFeedbackTitle = "Activation Dialog Failed"
+                                        actionFeedbackBody = err.localizedMessage ?: "Could not open ACTION_ADD_DEVICE_ADMIN."
+                                        actionFeedbackIsError = true
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                accentColor = GlassPalette.CyanGlow
+                            )
+                        } else {
+                            GlassSecondaryButton(
+                                text = "Deactivate NoobFree Admin",
+                                onClick = {
+                                    val res = adminPolicyManager.deactivateNoobFreeAdmin()
+                                    actionFeedbackTitle = res.title
+                                    actionFeedbackBody = res.message
+                                    actionFeedbackIsError = !res.success
+                                    rescan()
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            GlassPrimaryButton(
+                                text = "Lock Screen Now",
+                                onClick = {
+                                    val res = adminPolicyManager.lockScreenNow()
+                                    actionFeedbackTitle = res.title
+                                    actionFeedbackBody = res.message
+                                    actionFeedbackIsError = !res.success
+                                },
+                                modifier = Modifier.weight(1f),
+                                accentColor = GlassPalette.VioletGlow
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+                    Text(
+                        text = "Factory Data Reset Options",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        GlassPrimaryButton(
+                            text = "In-App Wipe Request",
+                            onClick = { showResetConfirmation = true },
+                            modifier = Modifier.weight(1f),
+                            accentColor = GlassPalette.RoseGlow,
+                            icon = Icons.Outlined.Restore
+                        )
+                        GlassSecondaryButton(
+                            text = "Recovery Reset Guide",
+                            onClick = { showRecoveryGuide = true },
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.Info
+                        )
+                    }
+                    GlassSecondaryButton(
+                        text = "Open Android System Reset Settings",
+                        onClick = { adminPolicyManager.openSystemResetSettings() },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // Section 5: UserManager Restrictions Matrix
+            item {
+                val activeRestrictions = report.userRestrictions.count { it.isRestricted }
+                ControlCard(
+                    title = "UserManager Restriction Matrix",
+                    subtitle = "$activeRestrictions of ${report.userRestrictions.size} inspected restrictions active",
+                    icon = Icons.Outlined.Security,
+                    badgeText = if (activeRestrictions > 0) "$activeRestrictions ENFORCED" else "ALL CLEAR",
+                    badgeColor = if (activeRestrictions > 0) GlassPalette.AmberGlow else GlassPalette.EmeraldGlow
+                ) {
+                    report.userRestrictions.forEach { restriction ->
+                        KeyValueRow(
+                            label = restriction.title,
+                            value = if (restriction.isRestricted) "RESTRICTED (${restriction.key})" else "Allowed",
+                            valueColor = if (restriction.isRestricted) GlassPalette.RoseGlow else GlassPalette.EmeraldGlow
+                        )
+                    }
+                }
+            }
+
+            // Section 6: Overlay & Accessibility Audit
+            item {
+                ControlCard(
+                    title = "Overlay & Accessibility Services",
+                    subtitle = "${report.allowedOverlayPackages.size} overlay apps • ${report.enabledAccessibilityServices.size} accessibility services",
+                    icon = Icons.Outlined.Visibility,
+                    badgeText = "PRIVACY AUDIT",
+                    badgeColor = GlassPalette.VioletGlow
+                ) {
+                    Text(
+                        text = "Enabled Accessibility Services:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White
+                    )
+                    Text(
+                        text = if (report.enabledAccessibilityServices.isEmpty()) {
+                            "None enabled."
+                        } else {
+                            report.enabledAccessibilityServices.joinToString("\n")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GlassPalette.TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Packages Allowed to Display Over Other Apps (SYSTEM_ALERT_WINDOW):",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White
+                    )
+                    Text(
+                        text = if (report.allowedOverlayPackages.isEmpty()) {
+                            "No packages reported with MODE_ALLOWED."
+                        } else {
+                            report.allowedOverlayPackages.joinToString("\n")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GlassPalette.TextSecondary
+                    )
+                }
+            }
         }
     }
+}
 
-    LaunchedEffect(Unit) { refresh() }
+@Composable
+private fun AdminPackageWorkflowCard(
+    app: DiscoveredAdminOrManagementApp,
+    onOpenAdminSettings: () -> Unit,
+    onLaunchManagementUi: () -> Unit,
+    onOpenAppDetails: () -> Unit,
+    onRecheck: () -> Unit,
+    onRequestUninstall: () -> Unit
+) {
+    val badgeColor = when (app.role) {
+        ManagementPrivilegeRole.DEVICE_OWNER -> GlassPalette.RoseGlow
+        ManagementPrivilegeRole.PROFILE_OWNER -> GlassPalette.AmberGlow
+        ManagementPrivilegeRole.ACTIVE_ORDINARY_ADMIN -> GlassPalette.AmberGlow
+        ManagementPrivilegeRole.INACTIVE_ADMIN_CAPABLE -> GlassPalette.EmeraldGlow
+        ManagementPrivilegeRole.MANAGED_COMPANION -> GlassPalette.VioletGlow
+        ManagementPrivilegeRole.STANDARD_APP -> GlassPalette.CyanGlow
+    }
 
-    if (showResetWarning) {
-        AlertDialog(
-            onDismissRequest = { showResetWarning = false },
-            title = { Text("Erase this tablet?") },
-            text = { Text("This permanently erases local apps, photos, downloads, accounts and settings. Back up everything first. Android may reject the request if NoobFree lacks the required administrator role or if another organization policy controls the device. A factory reset may also trigger automatic re-enrollment.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showResetWarning = false
-                    performAuthorizedReset()
-                }) { Text("Request device wipe") }
+    ControlCard(
+        title = app.label,
+        subtitle = "${app.packageName} • v${app.versionName}",
+        icon = Icons.Outlined.AdminPanelSettings,
+        badgeText = app.role.badgeLabel,
+        badgeColor = badgeColor
+    ) {
+        KeyValueRow("Management Status", app.statusSummary)
+        KeyValueRow(
+            "Admin Receiver Component",
+            app.componentName?.flattenToShortString() ?: "None declared in AndroidManifest"
+        )
+        KeyValueRow(
+            "Active Device Admin",
+            if (app.isActiveAdmin) "YES (Blocks direct uninstall)" else "NO (Inactive)",
+            valueColor = if (app.isActiveAdmin) GlassPalette.AmberGlow else GlassPalette.EmeraldGlow
+        )
+        KeyValueRow(
+            "Device / Profile Owner",
+            when {
+                app.isDeviceOwner -> "YES — Device Owner"
+                app.isProfileOwner -> "YES — Profile Owner"
+                else -> "No"
             },
-            dismissButton = {
-                TextButton(onClick = { showResetWarning = false }) { Text("Cancel") }
-            }
+            valueColor = if (app.isDeviceOwner || app.isProfileOwner) GlassPalette.RoseGlow else GlassPalette.TextPrimary
         )
-    }
-    if (showRecoveryGuide) {
-        AlertDialog(
-            onDismissRequest = { showRecoveryGuide = false },
-            title = { Text("Recovery-mode reset guide") },
-            text = { Text("1. Back up photos and files first. 2. Power the tablet completely off. 3. Use the model's documented hardware-key combination to enter Android Recovery (the exact keys vary by Acer model). 4. Use volume keys to highlight Wipe data/factory reset and Power to select. 5. Confirm only if you own the device and accept data loss. 6. Reboot. A reset does not guarantee removal from Android zero-touch/enterprise enrollment; the tablet may re-enroll during setup. Contact the seller or enrollment administrator if that happens.") },
-            confirmButton = { TextButton(onClick = { showRecoveryGuide = false }) { Text("Close") } }
+        if (app.declaredPolicies.isNotEmpty()) {
+            KeyValueRow("Declared Admin Policies", app.declaredPolicies.joinToString(", "))
+        }
+        Text(
+            text = app.removalGuidance,
+            style = MaterialTheme.typography.bodySmall,
+            color = GlassPalette.TextSecondary
         )
-    }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Privacy & Admin Inspector") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back") } },
-            actions = { IconButton(onClick = { refresh() }) { Icon(Icons.Outlined.Refresh, contentDescription = "Refresh") } }
-        )
-    }) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        // Step-by-step action buttons tailored to the exact role
+        if (app.canDeactivateInSettings) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                GlassPrimaryButton(
+                    text = "1. Deactivate in Admin Settings",
+                    onClick = onOpenAdminSettings,
+                    modifier = Modifier.weight(1f),
+                    accentColor = GlassPalette.AmberGlow
+                )
+                GlassSecondaryButton(
+                    text = "2. Recheck",
+                    onClick = onRecheck
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item {
-                Card(shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("Device recovery & NoobFree admin", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("NoobFree can request ordinary Device Administrator access with your consent. This does not make it Device Owner, does not grant permission to remove Google/Halo administrators, and does not bypass managed-device restrictions.", style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = { requestNoobFreeAdmin() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Make NoobFree a device admin")
-                        }
-                        Button(onClick = { showResetWarning = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Request in-app factory reset")
-                        }
-                        OutlinedButton(onClick = { showRecoveryGuide = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Manual recovery-mode reset guide")
-                        }
-                        resetStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                    }
-                }
-            }
-            item {
-                Card(shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("Android Device Policy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(policyRole, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
-                        Text("If this is a personal device enrolled in legacy Device Admin mode, open Device Policy and look for Unregister. If it is Device Owner, Google documents that switching out of that mode requires an administrator-authorized reset; NoobFree cannot bypass that protection.", style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = { openPolicyApp() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Open Android Device Policy")
-                        }
-                        OutlinedButton(onClick = { openAppDetails(policyPackage) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Open Device Policy app details")
-                        }
-                        OutlinedButton(onClick = { requestUninstall(policyPackage) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Request uninstall of Device Policy")
-                        }
-                        OutlinedButton(onClick = { openAdminSettings() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Manage device administrators")
-                        }
-                        OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Recheck management status")
-                        }
-                        Text("Android decides whether these requests are allowed. If Device Policy is Device Owner, Android will block ordinary uninstall; use the official organization unenrollment route. NoobFree cannot override that protection.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-            item {
-                Card(shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Administrator app actions", fontWeight = FontWeight.SemiBold)
-                        Text("These are direct Android system requests. Deactivate an ordinary administrator in Android settings before uninstalling it. Device Owner and organization-protected apps cannot be removed by an ordinary app.", style = MaterialTheme.typography.bodySmall)
-                        if (adminPackages.isEmpty()) {
-                            Text("No active administrator packages were returned. Refresh the scan to check again.", style = MaterialTheme.typography.bodySmall)
-                        } else {
-                            adminPackages.forEach { pkg ->
-                                HorizontalDivider()
-                                Text(pkg, fontWeight = FontWeight.Medium)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { openAppDetails(pkg) }, modifier = Modifier.weight(1f)) { Text("App details") }
-                                    Button(onClick = { requestUninstall(pkg) }, modifier = Modifier.weight(1f)) { Text("Request uninstall") }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            item {
-                Card(shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Halo apps found on this tablet", fontWeight = FontWeight.SemiBold)
-                        Text("NoobFree finds installed apps whose visible name or package contains Halo. Use Android's own uninstall confirmation. If policy blocks removal, the system will explain why.", style = MaterialTheme.typography.bodySmall)
-                        if (haloPackages.isEmpty()) {
-                            Text("No Halo-labelled apps were found in the installed-app list.", style = MaterialTheme.typography.bodySmall)
-                        } else {
-                            haloPackages.forEach { (label, pkg) ->
-                                HorizontalDivider()
-                                Text(label, fontWeight = FontWeight.Medium)
-                                Text(pkg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { openAppDetails(pkg) }, modifier = Modifier.weight(1f)) { Text("App details") }
-                                    Button(onClick = { requestUninstall(pkg) }, modifier = Modifier.weight(1f)) { Text("Uninstall") }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            item {
-                Card(shape = RoundedCornerShape(22.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("What this scan can and cannot tell you", fontWeight = FontWeight.SemiBold)
-                        Text("NoobFree reads information Android exposes to an ordinary app. A permission being granted does not prove it is actively being used. A policy not visible here may still be enforced through another mechanism.", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-            error?.let { msg -> item { Text(msg, color = MaterialTheme.colorScheme.error) } }
-            items(findings) { finding ->
-                Card {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(finding.title, fontWeight = FontWeight.SemiBold)
-                        Text(finding.status, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                        Text(finding.explanation, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            GlassSecondaryButton(
+                text = "Open App",
+                onClick = onLaunchManagementUi,
+                modifier = Modifier.weight(1f)
+            )
+            GlassSecondaryButton(
+                text = "App Info",
+                onClick = onOpenAppDetails,
+                modifier = Modifier.weight(1f)
+            )
+            GlassPrimaryButton(
+                text = if (app.isUpdatedSystemApp) "Uninstall Updates" else "Uninstall",
+                onClick = onRequestUninstall,
+                enabled = app.canDirectUninstallNow,
+                modifier = Modifier.weight(1f),
+                accentColor = if (app.canDirectUninstallNow) GlassPalette.RoseGlow else GlassPalette.TextMuted,
+                icon = Icons.Outlined.DeleteOutline
+            )
         }
     }
 }

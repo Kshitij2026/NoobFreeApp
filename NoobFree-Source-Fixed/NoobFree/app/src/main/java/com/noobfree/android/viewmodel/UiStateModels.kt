@@ -7,8 +7,11 @@ import com.noobfree.android.system.AnimationState
 import com.noobfree.android.system.BackgroundProcessLimit
 import com.noobfree.android.system.DebugState
 import com.noobfree.android.system.DeveloperOptionsState
+import com.noobfree.android.system.DeviceCapabilities
 import com.noobfree.android.system.DeviceHardwareInfo
+import com.noobfree.android.system.DeviceManagementReport
 import com.noobfree.android.system.RefreshRateInfo
+import com.noobfree.android.system.WallpaperPreflightState
 
 data class MainUiState(
     val isLoading: Boolean = true,
@@ -34,6 +37,9 @@ data class MainUiState(
     val backgroundProcessLimit: BackgroundProcessLimit = BackgroundProcessLimit.STANDARD,
     val refreshRateInfo: RefreshRateInfo = RefreshRateInfo(60f, 60f, 60f, emptyList(), ""),
     val deviceHardwareInfo: DeviceHardwareInfo? = null,
+    val managementReport: DeviceManagementReport? = null,
+    val capabilities: DeviceCapabilities? = null,
+    val wallpaperPreflight: WallpaperPreflightState? = null,
     val pendingBackgroundLimitConfirmation: BackgroundProcessLimit? = null,
     val bannerMessage: String? = null,
     val bannerIsError: Boolean = false,

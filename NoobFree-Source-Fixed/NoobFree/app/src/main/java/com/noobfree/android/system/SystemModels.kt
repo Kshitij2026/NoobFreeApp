@@ -12,7 +12,10 @@ data class DeveloperOptionsState(
     val isEnabled: Boolean,
     val rawGlobalValue: Int,
     val verificationSource: String,
-    val manufacturerNote: String
+    val manufacturerNote: String,
+    val isBlockedByAdminRestriction: Boolean = false,
+    val usbDebuggingEnabled: Boolean = false,
+    val guidedSteps: List<String> = emptyList()
 )
 
 data class AnimationState(

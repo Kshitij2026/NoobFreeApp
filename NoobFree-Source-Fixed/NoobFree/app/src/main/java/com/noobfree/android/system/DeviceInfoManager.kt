@@ -48,17 +48,17 @@ class DeviceInfoManager(private val context: Context) {
             manufacturer = safeBuildString { Build.MANUFACTURER }.replaceFirstChar { it.titlecase(Locale.US) },
             brand = safeBuildString { Build.BRAND }.replaceFirstChar { it.titlecase(Locale.US) },
             model = safeBuildString { Build.MODEL },
-            deviceCodename = Build.DEVICE,
+            deviceCodename = safeBuildString { Build.DEVICE },
             marketName = marketName,
             osSkinName = osSkin,
-            androidVersion = Build.VERSION.RELEASE,
+            androidVersion = safeBuildString { Build.VERSION.RELEASE },
             sdkInt = Build.VERSION.SDK_INT,
-            securityPatch = Build.VERSION.SECURITY_PATCH,
-            buildId = Build.DISPLAY,
+            securityPatch = safeBuildString { Build.VERSION.SECURITY_PATCH },
+            buildId = safeBuildString { Build.DISPLAY },
             totalRamFormatted = totalRam,
             availableRamFormatted = availRam,
             cpuHardware = readCpuHardware(),
-            supportedAbis = Build.SUPPORTED_ABIS.joinToString(", "),
+            supportedAbis = runCatching { Build.SUPPORTED_ABIS.joinToString(", ") }.getOrDefault("arm64-v8a"),
             cpuCoreCount = Runtime.getRuntime().availableProcessors(),
             screenResolution = resolution,
             screenDensityDpi = metrics.densityDpi,
@@ -73,6 +73,10 @@ class DeviceInfoManager(private val context: Context) {
         val manufacturer = safeBuildString { Build.MANUFACTURER }
         val mfr = manufacturer.lowercase(Locale.US)
         return when {
+            mfr.contains("acer") && model.contains("T4-82L", ignoreCase = true) ->
+                "Acer One 8 ($model)"
+            mfr.contains("acer") ->
+                "Acer $model"
             mfr.contains("nothing") && (device.contains("asteroids") || model.contains("A059", ignoreCase = true)) ->
                 "Nothing Phone (3a)"
             mfr.contains("nothing") ->
@@ -85,6 +89,7 @@ class DeviceInfoManager(private val context: Context) {
         val manufacturer = safeBuildString { Build.MANUFACTURER }
         val mfr = manufacturer.lowercase(Locale.US)
         return when {
+            mfr.contains("acer") -> "Acer Stock Android (AOSP)"
             mfr.contains("nothing") -> "Nothing OS"
             mfr.contains("samsung") -> "Samsung One UI"
             mfr.contains("xiaomi") || mfr.contains("redmi") || mfr.contains("poco") -> "Xiaomi HyperOS / MIUI"
@@ -98,8 +103,8 @@ class DeviceInfoManager(private val context: Context) {
 
     private fun readCpuHardware(): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val socModel = Build.SOC_MODEL
-            val socMfr = Build.SOC_MANUFACTURER
+            val socModel = runCatching { Build.SOC_MODEL }.getOrNull()
+            val socMfr = runCatching { Build.SOC_MANUFACTURER }.getOrNull()
             if (!socModel.isNullOrBlank() && socModel != Build.UNKNOWN) {
                 return if (!socMfr.isNullOrBlank() && socMfr != Build.UNKNOWN) {
                     "$socMfr $socModel"
@@ -114,7 +119,7 @@ class DeviceInfoManager(private val context: Context) {
                     ?.substringAfter(":")
                     ?.trim()
             }
-        }.getOrNull() ?: Build.HARDWARE
+        }.getOrNull() ?: safeBuildString { Build.HARDWARE }
     }
 
     private fun formatBytes(bytes: Long): String {
@@ -124,10 +129,10 @@ class DeviceInfoManager(private val context: Context) {
     }
 
     private fun buildCompatibilityNotes(): List<String> = listOf(
+        "Acer One 8 T4-82L-G2: Runtime-verified Android version & API level. Supports guided 7-tap Developer Options, Wallpaper memory-safe downsampling, and Halo/Google Device Policy diagnostics.",
         "Nothing OS (Nothing Phone 3a): Full compatibility with Shizuku Wireless Debugging, Developer Options toggle, and 0x–2x animation scales.",
         "Samsung One UI: Developer Options & animation scales supported. Knox MDM profiles may restrict global settings writes.",
         "Xiaomi HyperOS / MIUI: Global flags supported; 'USB Debugging (Security settings)' requires manual Mi Account verification in Settings.",
-        "OnePlus OxygenOS: Supported via Shizuku; disable 'Permission monitoring' in Developer Options if shell writes are blocked.",
         "Stock Android / Pixel: Reference AOSP behavior with full Settings.Global support."
     )
 }

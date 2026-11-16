@@ -1,5 +1,8 @@
 -keep class com.noobfree.android.IShizukuShellService { *; }
 -keep class com.noobfree.android.IShizukuShellService$* { *; }
+-keep class com.noobfree.android.ShellCommandResult { *; }
+-keep class com.noobfree.android.ShellCommandResult$* { *; }
 -keep class com.noobfree.android.service.ShizukuUserService { *; }
+-keep class com.noobfree.android.admin.NoobFreeAdminReceiver { *; }
 -keep class rikka.shizuku.** { *; }
 -dontwarn rikka.shizuku.**

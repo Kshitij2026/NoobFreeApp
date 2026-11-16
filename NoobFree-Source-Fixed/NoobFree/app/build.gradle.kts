@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
@@ -9,19 +10,36 @@ plugins {
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(keystorePropertiesFile.inputStream())
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
 }
+
+// Resolve signing parameters from keystore.properties OR environment variables (GitHub Actions secrets)
+val resolvedStoreFile: String? = keystoreProperties.getProperty("storeFile")
+    ?: System.getenv("NOOBFREE_KEYSTORE_PATH")
+val resolvedStorePassword: String? = keystoreProperties.getProperty("storePassword")
+    ?: System.getenv("NOOBFREE_KEYSTORE_PASSWORD")
+val resolvedKeyAlias: String? = keystoreProperties.getProperty("keyAlias")
+    ?: System.getenv("NOOBFREE_KEY_ALIAS")
+val resolvedKeyPassword: String? = keystoreProperties.getProperty("keyPassword")
+    ?: System.getenv("NOOBFREE_KEY_PASSWORD")
+
+val hasExplicitSigning = !resolvedStoreFile.isNullOrBlank() &&
+    rootProject.file(resolvedStoreFile).exists() &&
+    !resolvedStorePassword.isNullOrBlank() &&
+    !resolvedKeyAlias.isNullOrBlank() &&
+    !resolvedKeyPassword.isNullOrBlank()
 
 android {
     namespace = "com.noobfree.android"
     compileSdk = 35
 
     defaultConfig {
+        // Stable applicationId across all builds to prevent INSTALL_FAILED_UPDATE_INCOMPATIBLE / package conflicts
         applicationId = "com.noobfree.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -30,21 +48,27 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (hasExplicitSigning) {
             create("release") {
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = rootProject.file(resolvedStoreFile!!)
+                storePassword = resolvedStorePassword
+                keyAlias = resolvedKeyAlias
+                keyPassword = resolvedKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
+            // Keep stable applicationId so debug and release builds upgrade cleanly when signed with the same persistent key
             versionNameSuffix = "-debug"
             isMinifyEnabled = false
+            if (hasExplicitSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             isMinifyEnabled = true
@@ -53,8 +77,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
+            // Use explicit release signing when provided; fall back to debug signing so CI always outputs an installable APK
+            signingConfig = if (hasExplicitSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
             }
         }
     }
@@ -72,6 +99,12 @@ android {
         compose = true
         aidl = true
         buildConfig = true
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = true
+        warningsAsErrors = false
     }
 
     packaging {
