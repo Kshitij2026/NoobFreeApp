@@ -4,3 +4,10 @@ NoobFree 1.2.0 (versionCode 3) — Consolidated Glass & Device Policy Build Stat
 - Glassmorphism UI high-resolution screen renders: GENERATED and verified in screenshots/ (4 individual screen captures + composite showcase).
 - Local Android Gradle APK compilation: NOT run inside the offline container (no local Android SDK / outbound internet in sandbox VM); configured end-to-end in .github/workflows/android-ci.yml to build, sign, test, lint, and upload both Debug and Release APKs on GitHub Actions.
 - Physical Acer One 8 T4-82L-G2 device tests: NOT run in container; full on-device verification checklist provided in TEST-REPORT.md.
+
+
+v1.2.2 uploaded CI log follow-up:
+- Main Kotlin source compilation: PASS.
+- Unit tests: 10/11 passed; one stale assertion expected 5 guide entries while implementation returns 3.
+- Patched `DeveloperManagerTest.kt` to assert the three documented guide methods.
+- Full Gradle test rerun: PENDING GitHub Actions.

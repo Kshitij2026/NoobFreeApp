@@ -11,3 +11,9 @@ The uploaded source read `Build.MANUFACTURER.lowercase()` directly in `Developer
 
 ## Verification
 These are source-level changes based on the uploaded ZIP and the GitHub Actions test output. A fresh GitHub Actions run is required to confirm all tests pass and the APK builds.
+
+
+## v1.2.2 CI follow-up
+The uploaded GitHub Actions log shows Kotlin compilation succeeded and 10 of 11 unit tests passed. The only failure was `manufacturer compatibility note handles Acer and unavailable manufacturer` at `DeveloperManagerTest.kt:171`. Its final assertion expected five guide entries, but `getSevenTapGuideSteps()` currently returns three grouped methods (direct activity, direct global-write attempt, native seven-tap guide). Updated the test to assert the actual three method labels. This aligns the test with the implementation; it does not change Android privilege capabilities.
+
+The updated test has not yet been rerun with Gradle in this environment. Re-run `:app:testDebugUnitTest` in GitHub Actions to confirm.

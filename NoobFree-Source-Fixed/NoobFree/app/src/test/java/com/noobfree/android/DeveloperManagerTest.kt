@@ -168,7 +168,12 @@ class DeveloperManagerTest {
 
         assertTrue(unknownManager.getManufacturerCompatibilityNote().contains("Unknown"))
         assertTrue(acerManager.getManufacturerCompatibilityNote().contains("Acer"))
-        assertEquals(5, acerManager.getSevenTapGuideSteps().size)
+        // Three grouped activation methods are exposed by the current guided workflow.
+        val steps = acerManager.getSevenTapGuideSteps()
+        assertEquals(3, steps.size)
+        assertTrue(steps[0].contains("Method A"))
+        assertTrue(steps[1].contains("Method B"))
+        assertTrue(steps[2].contains("Method C"))
     }
 
     @Test
