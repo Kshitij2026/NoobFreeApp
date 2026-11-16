@@ -2,6 +2,7 @@ package com.noobfree.android.system
 
 import android.app.AppOpsManager
 import android.app.admin.DeviceAdminInfo
+import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -91,6 +92,7 @@ class AdminPolicyManager(private val context: Context) {
 
     companion object {
         const val GOOGLE_DEVICE_POLICY_PKG = "com.google.android.apps.work.clouddpc"
+        private const val ACTION_USER_SETTINGS_FALLBACK = "android.settings.USER_SETTINGS"
 
         val TRACKED_USER_RESTRICTIONS: List<Pair<String, String>> = listOf(
             UserManager.DISALLOW_DEBUGGING_FEATURES to "Developer & ADB Debugging Features",
@@ -305,7 +307,6 @@ class AdminPolicyManager(private val context: Context) {
             detectedDeviceOwnerPkg = detectedDeviceOwnerPkg,
             detectedProfileOwnerPkg = detectedProfileOwnerPkg,
             managedProfile = managedProfile,
-            activeAdmins = activeAdmins,
             discoveredList = discoveredList,
             disallowUninstall = globalDisallowUninstall,
             disallowDebugging = disallowDebugging
@@ -365,7 +366,6 @@ class AdminPolicyManager(private val context: Context) {
         detectedDeviceOwnerPkg: String?,
         detectedProfileOwnerPkg: String?,
         managedProfile: Boolean,
-        activeAdmins: List<ComponentName>,
         discoveredList: List<DiscoveredAdminOrManagementApp>,
         disallowUninstall: Boolean,
         disallowDebugging: Boolean
@@ -606,7 +606,7 @@ class AdminPolicyManager(private val context: Context) {
     fun openAccountsAndWorkProfileSettings(): Boolean {
         val intents = listOf(
             Intent(Settings.ACTION_SYNC_SETTINGS),
-            Intent(Settings.ACTION_USER_SETTINGS),
+            Intent(ACTION_USER_SETTINGS_FALLBACK),
             Intent(Settings.ACTION_SETTINGS)
         )
         return launchFirstResolvable(intents)
@@ -661,7 +661,7 @@ class AdminPolicyManager(private val context: Context) {
     }
 
     private fun queryDeclaredAdminReceivers(pm: PackageManager): List<ResolveInfo> {
-        val queryIntent = Intent(DevicePolicyManager.ACTION_DEVICE_ADMIN_ENABLED)
+        val queryIntent = Intent(DeviceAdminReceiver.ACTION_DEVICE_ADMIN_ENABLED)
         return runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 pm.queryBroadcastReceivers(
@@ -690,7 +690,7 @@ class AdminPolicyManager(private val context: Context) {
             if (adminInfo.usesPolicy(DeviceAdminInfo.USES_POLICY_LIMIT_PASSWORD)) policies.add("limit-password")
             if (adminInfo.usesPolicy(DeviceAdminInfo.USES_POLICY_WATCH_LOGIN)) policies.add("watch-login")
             if (adminInfo.usesPolicy(DeviceAdminInfo.USES_POLICY_RESET_PASSWORD)) policies.add("reset-password")
-            if (adminInfo.usesPolicy(DeviceAdminInfo.USES_POLICY_ENCRYPTED_STORAGE)) policies.add("encrypted-storage")
+            if (adminInfo.usesPolicy(DeviceAdminInfo.USES_ENCRYPTED_STORAGE)) policies.add("encrypted-storage")
             if (adminInfo.usesPolicy(DeviceAdminInfo.USES_POLICY_DISABLE_CAMERA)) policies.add("disable-camera")
             policies
         } catch (_: XmlPullParserException) {
