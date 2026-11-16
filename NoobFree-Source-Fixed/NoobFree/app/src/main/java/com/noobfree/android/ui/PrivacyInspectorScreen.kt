@@ -2,6 +2,7 @@ package com.noobfree.android.ui
 
 import android.app.AppOpsManager
 import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
@@ -55,6 +57,7 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
     var policyRole by remember { mutableStateOf("Checking management status…") }
     var adminPackages by remember { mutableStateOf<List<String>>(emptyList()) }
     var haloPackages by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var showResetWarning by remember { mutableStateOf(false) }
 
     fun openAdminSettings() {
         val intent = Intent("android.settings.DEVICE_ADMIN_SETTINGS")
@@ -82,6 +85,31 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
             runCatching {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$policyPackage")))
             }.onFailure { error = "Android Device Policy app details could not be opened." }
+        }
+    }
+
+    fun requestNoobFreeAdmin() {
+        val component = ComponentName(context, com.noobfree.android.admin.NoobFreeAdminReceiver::class.java)
+        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Optional NoobFree administrator access. This does not make NoobFree Device Owner and cannot remove other administrators.")
+        }
+        runCatching { context.startActivity(intent) }
+            .onFailure { error = "Could not open Android administrator activation: ${it.localizedMessage}" }
+    }
+
+    fun openFactoryResetSettings() {
+        val primary = Intent("android.settings.FACTORY_RESET")
+        val fallback = Intent(Settings.ACTION_SETTINGS)
+        runCatching {
+            primary.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(primary)
+        }.onFailure {
+            runCatching {
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(fallback)
+            }.onFailure { error = "Could not open reset settings: ${it.localizedMessage}" }
         }
     }
 
@@ -190,6 +218,23 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { refresh() }
 
+    if (showResetWarning) {
+        AlertDialog(
+            onDismissRequest = { showResetWarning = false },
+            title = { Text("Factory reset") },
+            text = { Text("A factory reset erases local apps, photos, downloads, accounts and settings. It may NOT remove Android Device Policy if the tablet is registered for automatic enterprise enrollment. Back up your data and confirm with the device owner or seller before proceeding.") },
+            confirmButton = {
+                Button(onClick = {
+                    showResetWarning = false
+                    openFactoryResetSettings()
+                }) { Text("Open reset settings") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showResetWarning = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Privacy & Admin Inspector") },
@@ -202,6 +247,20 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            item {
+                Card(shape = RoundedCornerShape(22.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("Device recovery & NoobFree admin", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("NoobFree can request ordinary Device Administrator access with your consent. This does not make it Device Owner, does not grant permission to remove Google/Halo administrators, and does not bypass managed-device restrictions.", style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = { requestNoobFreeAdmin() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Make NoobFree a device admin")
+                        }
+                        OutlinedButton(onClick = { showResetWarning = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Open factory reset options")
+                        }
+                    }
+                }
+            }
             item {
                 Card(shape = RoundedCornerShape(22.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
