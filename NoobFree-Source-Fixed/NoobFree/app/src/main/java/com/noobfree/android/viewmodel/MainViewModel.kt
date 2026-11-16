@@ -176,6 +176,29 @@ class MainViewModel(
         }
     }
 
+    fun applyBuiltInGlassWallpaper(destination: WallpaperDestination) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExecutingAction = true, bannerMessage = null) }
+            val outcome = deviceRepository.applyBuiltInGlassWallpaper(destination)
+            val wpPreflight = deviceRepository.readWallpaperPreflight()
+            _uiState.update {
+                it.copy(
+                    isExecutingAction = false,
+                    wallpaperPreflight = wpPreflight,
+                    bannerMessage = outcome.message,
+                    bannerIsError = !outcome.success
+                )
+            }
+            appendLog(
+                category = "Wallpaper",
+                action = "Apply Built-in Glass (${destination.label})",
+                command = null,
+                success = outcome.success,
+                detail = outcome.message
+            )
+        }
+    }
+
     fun requestBackgroundProcessLimitChange(limit: BackgroundProcessLimit) {
         _uiState.update { it.copy(pendingBackgroundLimitConfirmation = limit) }
     }
@@ -218,10 +241,17 @@ class MainViewModel(
 
     fun openDeveloperOptionsSettings() {
         val opened = deviceRepository.openDeveloperOptionsSettings()
+        appendLog(
+            category = "Developer Options",
+            action = "Direct Launch Developer Options Activity",
+            command = "com.android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
+            success = opened,
+            detail = if (opened) "Launched Developer Options activity." else "Could not resolve Developer Options activity."
+        )
         if (!opened) {
             _uiState.update {
                 it.copy(
-                    bannerMessage = "Unable to open Developer Options directly. Use the 7-Tap About Tablet guide first.",
+                    bannerMessage = "Android Settings rejected direct Developer Options launch.",
                     bannerIsError = true
                 )
             }
@@ -243,7 +273,7 @@ class MainViewModel(
             action = "Open About Tablet (7-Tap Flow)",
             command = "android.settings.DEVICE_INFO_SETTINGS",
             success = true,
-            detail = "Opened Android Device Info settings for manual 7-tap Build Number activation."
+            detail = "Opened Android Device Info settings."
         )
     }
 

@@ -93,15 +93,20 @@ class ShizukuUserService : IShizukuShellService.Stub() {
             Regex("^settings get global development_settings_enabled$"),
             Regex("^settings put global development_settings_enabled [01]$"),
             Regex("^settings get global adb_enabled$"),
+            Regex("^settings put global adb_enabled [01]$"),
             Regex("^settings get global adb_wifi_enabled$"),
+            Regex("^settings put global adb_wifi_enabled [01]$"),
             Regex("^settings get global (window_animation_scale|transition_animation_scale|animator_duration_scale)$"),
             Regex("^settings put global (window_animation_scale|transition_animation_scale|animator_duration_scale) (0|0\\.5|1|1\\.0|1\\.5|2|2\\.0)$"),
             Regex("^settings get global background_process_limit$"),
             Regex("^settings put global background_process_limit (-1|0|1|2|3|4)$"),
-            // Package commands are narrowly constrained to one validated package identifier.
+            // Package commands narrowly constrained to one validated package or component identifier
             Regex("^pm disable-user --user 0 [A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$"),
             Regex("^pm enable [A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$"),
-            Regex("^pm list packages -d [A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$")
+            Regex("^pm uninstall --user 0 [A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$"),
+            Regex("^pm uninstall -k --user 0 [A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$"),
+            Regex("^pm list packages -d [A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+$"),
+            Regex("^dpm remove-active-admin --user 0 [A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+/[A-Za-z0-9_.\\$]+$")
         )
 
         fun isCommandAllowed(command: String): Boolean {

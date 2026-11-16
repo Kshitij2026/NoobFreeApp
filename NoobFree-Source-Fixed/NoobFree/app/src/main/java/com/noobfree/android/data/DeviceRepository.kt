@@ -1,5 +1,6 @@
 package com.noobfree.android.data
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -78,13 +79,43 @@ class DeviceRepository(
     suspend fun applyWallpaper(uri: Uri, destination: WallpaperDestination): WallpaperApplyOutcome =
         wallpaperHelper.applyWallpaperFromUri(uri, destination)
 
+    suspend fun applyBuiltInGlassWallpaper(destination: WallpaperDestination): WallpaperApplyOutcome =
+        wallpaperHelper.applyBuiltInGlassWallpaper(destination)
+
+    fun launchSystemWallpaperIntent(uri: Uri): Boolean =
+        wallpaperHelper.launchSystemWallpaperIntent(uri)
+
+    /**
+     * Tries multiple explicit Developer Options component & action intents so the user
+     * can test opening Developer Options directly even when About Tablet -> Build Number is blocked.
+     */
     fun openDeveloperOptionsSettings(): Boolean = launchSettingsIntent(
         Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
+        Intent("com.android.settings.APPLICATION_DEVELOPMENT_SETTINGS"),
+        Intent().setComponent(
+            ComponentName(
+                "com.android.settings",
+                "com.android.settings.Settings\$DevelopmentSettingsDashboardActivity"
+            )
+        ),
+        Intent().setComponent(
+            ComponentName(
+                "com.android.settings",
+                "com.android.settings.DevelopmentSettings"
+            )
+        ),
+        Intent("android.settings.ADB_SETTINGS"),
         Intent(Settings.ACTION_SETTINGS)
     )
 
     fun openDeviceInfoSettings(): Boolean = launchSettingsIntent(
         Intent(Settings.ACTION_DEVICE_INFO_SETTINGS),
+        Intent().setComponent(
+            ComponentName(
+                "com.android.settings",
+                "com.android.settings.Settings\$MyDeviceInfoActivity"
+            )
+        ),
         Intent(Settings.ACTION_SETTINGS)
     )
 
@@ -94,6 +125,13 @@ class DeviceRepository(
     )
 
     fun openWirelessDebuggingOrDevSettings(): Boolean = launchSettingsIntent(
+        Intent("android.settings.ADB_WIFI_SETTINGS"),
+        Intent().setComponent(
+            ComponentName(
+                "com.android.settings",
+                "com.android.settings.Settings\$WirelessDebuggingActivity"
+            )
+        ),
         Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
         Intent(Settings.ACTION_WIRELESS_SETTINGS),
         Intent(Settings.ACTION_SETTINGS)
@@ -116,14 +154,11 @@ class DeviceRepository(
     private fun launchSettingsIntent(vararg intents: Intent): Boolean {
         for (intent in intents) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            val resolved = intent.resolveActivity(context.packageManager)
-            if (resolved != null) {
-                val started = runCatching {
-                    context.startActivity(intent)
-                    true
-                }.getOrDefault(false)
-                if (started) return true
-            }
+            val started = runCatching {
+                context.startActivity(intent)
+                true
+            }.getOrDefault(false)
+            if (started) return true
         }
         return false
     }

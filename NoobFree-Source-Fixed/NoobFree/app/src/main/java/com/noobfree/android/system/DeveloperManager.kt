@@ -8,7 +8,6 @@ import com.noobfree.android.data.CommandExecutor
 class DeveloperManager(
     private val contentResolver: ContentResolver,
     private val commandExecutor: CommandExecutor,
-    // Injectable so local JVM tests do not depend on Android framework Build fields.
     private val manufacturerProvider: () -> String = { Build.MANUFACTURER },
     private val disallowDebuggingProvider: () -> Boolean = { false }
 ) {
@@ -69,17 +68,39 @@ class DeveloperManager(
             return OperationOutcome(
                 success = false,
                 data = current,
-                message = "Blocked by administrator policy (DISALLOW_DEBUGGING_FEATURES). An active Device Owner or organization administrator prevents enabling Developer Options until unenrolled.",
+                message = "Blocked by administrator policy (DISALLOW_DEBUGGING_FEATURES). Use 'Direct Open Dev Options Activity' to test whether the Settings sub-activity is accessible directly.",
                 executedCommand = null
             )
         }
 
+        // Strategy 1: Attempt direct ContentResolver write in case WRITE_SECURE_SETTINGS was granted
+        val directWriteOk = runCatching {
+            Settings.Global.putInt(contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 1)
+        }.getOrDefault(false)
+
+        if (directWriteOk) {
+            val checkInt = runCatching {
+                Settings.Global.getInt(contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0)
+            }.getOrDefault(0)
+            if (checkInt == 1) {
+                val updated = getDeveloperOptionsState()
+                return OperationOutcome(
+                    success = true,
+                    data = updated,
+                    message = "Developer Options enabled directly via Settings.Global.putInt (WRITE_SECURE_SETTINGS).",
+                    executedCommand = "Settings.Global.putInt(DEVELOPMENT_SETTINGS_ENABLED, 1)",
+                    rawOutput = "1"
+                )
+            }
+        }
+
+        // Strategy 2: Shizuku shell write if connected
         if (!commandExecutor.isReady()) {
             val current = getDeveloperOptionsState()
             return OperationOutcome(
                 success = false,
                 data = current,
-                message = "Direct global flag write requires Shizuku. Without Shizuku, use the 'Open About Tablet (7-Tap Guide)' button to enable Developer Options natively in Settings.",
+                message = "Direct Settings.Global write requires WRITE_SECURE_SETTINGS or Shizuku. Without Shizuku, use 'Direct Open Dev Options' or 'Open About Tablet (7-Tap Guide)'.",
                 executedCommand = CMD_ENABLE_DEV_OPTIONS
             )
         }
@@ -133,12 +154,28 @@ class DeveloperManager(
     }
 
     suspend fun disableDeveloperOptions(): OperationOutcome<DeveloperOptionsState> {
+        val directWriteOk = runCatching {
+            Settings.Global.putInt(contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0)
+        }.getOrDefault(false)
+        if (directWriteOk) {
+            val state = getDeveloperOptionsState()
+            if (!state.isEnabled) {
+                return OperationOutcome(
+                    success = true,
+                    data = state,
+                    message = "Developer Options disabled via Settings.Global.putInt.",
+                    executedCommand = "Settings.Global.putInt(DEVELOPMENT_SETTINGS_ENABLED, 0)",
+                    rawOutput = "0"
+                )
+            }
+        }
+
         if (!commandExecutor.isReady()) {
             val current = getDeveloperOptionsState()
             return OperationOutcome(
                 success = false,
                 data = current,
-                message = "Shizuku is not connected. Without Shizuku, open Android Developer Options Settings and toggle the top 'Use developer options' switch off.",
+                message = "Shizuku is not connected. Open Android Developer Options Settings to toggle the top switch off.",
                 executedCommand = CMD_DISABLE_DEV_OPTIONS
             )
         }
@@ -180,11 +217,9 @@ class DeveloperManager(
                 "Open Settings -> About tablet / About phone -> locate 'Build number'."
         }
         return listOf(
-            "Step 1: Tap 'Open About Tablet' below to jump directly to Android's Device Info screen.",
-            "Step 2: $pathNote",
-            "Step 3: Tap 'Build number' rapidly 7 times until Android displays 'You are now a developer!'.",
-            "Step 4: If prompted, confirm your tablet's lock-screen PIN, pattern, or password.",
-            "Step 5: Return to NoobFree—status is re-verified automatically on resume—or tap 'Open Developer Options' to configure USB / Wireless Debugging."
+            "Method A (Direct Activity Launch): Tap 'Direct Open Dev Options' to launch Android's DevelopmentSettingsDashboardActivity directly without going through About Tablet.",
+            "Method B (Direct Global Write): Tap 'Try Direct Enable Flag' to test writing DEVELOPMENT_SETTINGS_ENABLED = 1 via ContentResolver or Shizuku.",
+            "Method C (7-Tap Build Number): $pathNote Tap 'Build number' 7 times if not restricted by DISALLOW_DEBUGGING_FEATURES."
         )
     }
 
@@ -193,7 +228,7 @@ class DeveloperManager(
         val mfr = manufacturer.lowercase()
         return when {
             mfr.contains("acer") ->
-                "Acer Tablet ($manufacturer): Uses standard AOSP Settings.Global.DEVELOPMENT_SETTINGS_ENABLED. If Halo Agent or Google Android Device Policy enforces DISALLOW_DEBUGGING_FEATURES, Android Settings blocks the 7-tap Build number gesture until the administrator restriction is lifted."
+                "Acer Tablet ($manufacturer): Uses standard AOSP Settings.Global.DEVELOPMENT_SETTINGS_ENABLED. If Build number in About Tablet is locked by DISALLOW_DEBUGGING_FEATURES, use 'Direct Open Dev Options' to test whether the DevelopmentSettings activity responds directly."
             mfr.contains("nothing") ->
                 "Nothing OS (e.g., Nothing Phone 3a): Standard AOSP Settings.Global flag supported cleanly via 7-tap gesture or Shizuku."
             mfr.contains("samsung") ->

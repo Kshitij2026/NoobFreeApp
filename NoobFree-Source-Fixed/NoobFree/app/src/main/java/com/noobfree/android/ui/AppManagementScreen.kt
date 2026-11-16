@@ -9,7 +9,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -26,7 +25,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Android
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
@@ -119,7 +118,6 @@ private data class ScannedAppItem(
     val isDeviceOrProfileOwner: Boolean,
     val isUninstallBlockedByPolicy: Boolean,
     val isHaloRelated: Boolean,
-    val canDirectUninstall: Boolean,
     val iconBitmap: ImageBitmap?
 )
 
@@ -141,7 +139,6 @@ fun AppManagementScreen(
 
     val apps = remember { mutableStateListOf<ScannedAppItem>() }
     var activeLauncherPkgs by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var isScanning by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(AppCategoryFilter.ALL) }
     var sortOrder by remember { mutableStateOf(AppSortOrder.ROLE_FIRST) }
@@ -150,15 +147,16 @@ fun AppManagementScreen(
 
     var pendingToggleApp by remember { mutableStateOf<ScannedAppItem?>(null) }
     var selectedDetailApp by remember { mutableStateOf<ScannedAppItem?>(null) }
-    var blockedAdminAppDialog by remember { mutableStateOf<ScannedAppItem?>(null) }
 
     var wallpaperDest by remember { mutableStateOf(WallpaperDestination.HOME_SCREEN) }
     var wallpaperBusy by remember { mutableStateOf(false) }
+    var lastSelectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
     val wallpaperPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
+            lastSelectedImageUri = uri
             wallpaperBusy = true
             scope.launch {
                 val outcome = wallpaperHelper.applyWallpaperFromUri(uri, wallpaperDest)
@@ -172,7 +170,6 @@ fun AppManagementScreen(
 
     fun scanApps() {
         scope.launch {
-            isScanning = true
             val result = withContext(Dispatchers.IO) {
                 val mgmtReport = adminPolicyManager.inspectDeviceManagement()
                 val adminMap = mgmtReport.adminAndManagementApps.associateBy { it.packageName }
@@ -246,14 +243,6 @@ fun AppManagementScreen(
                         else -> "OEM / System"
                     }
 
-                    val canDirectUninstall = AdminPolicyManager.canLaunchDirectUninstall(
-                        role = role,
-                        isSystemApp = isSys,
-                        isUpdatedSystemApp = isUpdatedSys,
-                        isUninstallBlockedByPolicy = isBlockedByPolicy,
-                        globalDisallowUninstall = mgmtReport.disallowUninstallApps
-                    )
-
                     val iconBmp = runCatching {
                         drawableToImageBitmap(pm.getApplicationIcon(info), maxPx = 96)
                     }.getOrNull()
@@ -273,7 +262,6 @@ fun AppManagementScreen(
                         isDeviceOrProfileOwner = isOwner,
                         isUninstallBlockedByPolicy = isBlockedByPolicy,
                         isHaloRelated = isHalo,
-                        canDirectUninstall = canDirectUninstall,
                         iconBitmap = iconBmp
                     )
                 }
@@ -282,7 +270,6 @@ fun AppManagementScreen(
             activeLauncherPkgs = result.first
             apps.clear()
             apps.addAll(result.second)
-            isScanning = false
         }
     }
 
@@ -329,7 +316,6 @@ fun AppManagementScreen(
             }
         )
 
-    // Dialog: Disable / Enable Confirmation via Shizuku
     if (pendingToggleApp != null) {
         val target = pendingToggleApp!!
         GlassConfirmDialog(
@@ -358,56 +344,9 @@ fun AppManagementScreen(
                 fontWeight = FontWeight.SemiBold
             )
             Text(text = target.safetyTier.description)
-            Text(
-                text = if (target.isEnabled) {
-                    "Executes `pm disable-user --user 0 ${target.packageName}` via Shizuku and verifies the disabled state. You can restore this package anytime using the 'Disabled (Restore)' filter."
-                } else {
-                    "Executes `pm enable ${target.packageName}` via Shizuku to restore full app functionality."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = GlassPalette.CyanGlow
-            )
         }
     }
 
-    // Dialog: Active Admin / Protected App Uninstall Interception
-    if (blockedAdminAppDialog != null) {
-        val target = blockedAdminAppDialog!!
-        GlassConfirmDialog(
-            title = "Protected by Device Policy: ${target.label}",
-            confirmLabel = "Open Admin & Halo Inspector",
-            onConfirm = {
-                blockedAdminAppDialog = null
-                onNavigateToPrivacy()
-            },
-            onDismiss = { blockedAdminAppDialog = null },
-            accentColor = GlassPalette.AmberGlow
-        ) {
-            Text(
-                text = when {
-                    target.isDeviceOrProfileOwner ->
-                        "${target.label} (${target.packageName}) is registered as Device Owner or Profile Owner. Android blocks direct uninstallation ('Can't uninstall active device admin app')."
-                    target.isActiveAdmin ->
-                        "${target.label} is an Active Device Administrator. Android requires deactivating its administrator receiver in Settings before it can be uninstalled."
-                    target.isUninstallBlockedByPolicy ->
-                        "Android reports that an administrator blocks uninstalling ${target.label} ('App is required by the device administrator'). You must first deactivate or unenroll the controlling administrator."
-                    else ->
-                        "${target.label} is a read-only system package."
-                },
-                color = Color.White
-            )
-            GlassSecondaryButton(
-                text = "Open Android Device Admin Settings",
-                onClick = {
-                    blockedAdminAppDialog = null
-                    adminPolicyManager.openDeviceAdminSettings()
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-
-    // Dialog: App Details Inspector
     if (selectedDetailApp != null) {
         val app = selectedDetailApp!!
         GlassConfirmDialog(
@@ -427,17 +366,27 @@ fun AppManagementScreen(
             KeyValueRow("Current State", if (app.isEnabled) "Enabled" else "Disabled for User 0")
             KeyValueRow("Management Role", app.managementRole.badgeLabel)
             KeyValueRow("Debloat Safety Tier", app.safetyTier.badgeLabel)
-            Text(
-                text = app.safetyTier.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = GlassPalette.TextSecondary
+            GlassSecondaryButton(
+                text = "Test Shell Uninstall (User 0 via Shizuku)",
+                onClick = {
+                    val pkg = app.packageName
+                    selectedDetailApp = null
+                    scope.launch {
+                        val outcome = operationManager.uninstallForUserZeroViaShizuku(pkg)
+                        statusBanner = outcome.detail
+                        statusIsError = !outcome.success
+                        viewModel.recordExternalOperation(outcome)
+                        scanApps()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
 
     GlassScreenScaffold(
         title = "App Manager, Debloater & Wallpaper",
-        subtitle = "${apps.size} apps scanned • ${apps.count { !it.isEnabled }} disabled",
+        subtitle = "${apps.size} apps scanned • All buttons unlocked for testing",
         onBack = onBack,
         actions = {
             IconButton(
@@ -463,7 +412,6 @@ fun AppManagementScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Status Banner
             statusBanner?.let { msg ->
                 item {
                     val accent = if (statusIsError) GlassPalette.RoseGlow else GlassPalette.EmeraldGlow
@@ -487,15 +435,15 @@ fun AppManagementScreen(
                 }
             }
 
-            // Wallpaper Studio Card
+            // Wallpaper Studio Card (Always Unlocked + 1-Tap Built-in Glass Wallpaper + System Setter Intent)
             item {
                 val wp = uiState.wallpaperPreflight ?: wallpaperHelper.checkEligibility()
                 ControlCard(
-                    title = "Wallpaper Studio (Memory-Safe Decoder)",
+                    title = "Wallpaper Studio (3-Stage Engine)",
                     subtitle = wp.statusHeadline,
                     icon = Icons.Outlined.Image,
-                    badgeText = if (wp.canApplyWallpaper) "READY" else "LOCKED",
-                    badgeColor = if (wp.canApplyWallpaper) GlassPalette.CyanGlow else GlassPalette.RoseGlow
+                    badgeText = "UNLOCKED",
+                    badgeColor = GlassPalette.CyanGlow
                 ) {
                     Text(
                         text = wp.statusDetail,
@@ -519,14 +467,40 @@ fun AppManagementScreen(
                             )
                         }
                     }
-                    GlassPrimaryButton(
-                        text = if (wallpaperBusy) "Decoding & Applying..." else "Choose Image & Apply to ${wallpaperDest.label}",
-                        onClick = { wallpaperPicker.launch(arrayOf("image/*")) },
-                        enabled = wp.canApplyWallpaper && !wallpaperBusy,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        accentColor = GlassPalette.CyanGlow,
-                        icon = Icons.Outlined.Image
-                    )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        GlassPrimaryButton(
+                            text = if (wallpaperBusy) "Applying..." else "Pick Image & Apply",
+                            onClick = { wallpaperPicker.launch("image/*") },
+                            enabled = !wallpaperBusy,
+                            modifier = Modifier.weight(1f),
+                            accentColor = GlassPalette.CyanGlow,
+                            icon = Icons.Outlined.Image
+                        )
+                        GlassSecondaryButton(
+                            text = "1-Tap Glass Wall",
+                            onClick = {
+                                wallpaperBusy = true
+                                scope.launch {
+                                    val outcome = wallpaperHelper.applyBuiltInGlassWallpaper(wallpaperDest)
+                                    statusBanner = outcome.message
+                                    statusIsError = !outcome.success
+                                    wallpaperBusy = false
+                                }
+                            },
+                            enabled = !wallpaperBusy,
+                            icon = Icons.Outlined.AutoAwesome
+                        )
+                    }
+                    if (lastSelectedImageUri != null) {
+                        GlassSecondaryButton(
+                            text = "Open System Wallpaper Setter for Selected Image",
+                            onClick = { wallpaperHelper.launchSystemWallpaperIntent(lastSelectedImageUri!!) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
 
@@ -590,7 +564,7 @@ fun AppManagementScreen(
                 }
             }
 
-            // App Inventory Items
+            // App Inventory Items (Every App Has Unlocked Uninstall, Disable, and Details Buttons!)
             items(filteredApps, key = { it.packageName }) { app ->
                 val tierColor = when (app.safetyTier) {
                     DebloatSafetyTier.CRITICAL_PROTECTED -> GlassPalette.RoseGlow
@@ -610,7 +584,6 @@ fun AppManagementScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // App Icon
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
@@ -669,12 +642,7 @@ fun AppManagementScreen(
                         }
                     }
 
-                    // Action Buttons Row
-                    val isCriticallyProtected = app.safetyTier == DebloatSafetyTier.CRITICAL_PROTECTED
-                    val canToggleEnable = commandExecutor.isReady() &&
-                        (!isCriticallyProtected || !app.isEnabled) &&
-                        !app.isDeviceOrProfileOwner
-
+                    // Primary Action Row: Details + Disable/Enable + Direct Uninstall (ALWAYS ENABLED!)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -685,73 +653,53 @@ fun AppManagementScreen(
                             icon = Icons.Outlined.Info
                         )
 
-                        // Disable / Re-enable button (always available to re-enable if disabled; requires Shizuku)
                         GlassSecondaryButton(
-                            text = if (app.isEnabled) "Disable" else "Restore (Enable)",
+                            text = if (app.isEnabled) "Disable" else "Enable",
                             onClick = { pendingToggleApp = app },
-                            enabled = canToggleEnable,
+                            enabled = true,
                             modifier = Modifier.weight(1f)
                         )
 
-                        // Uninstall OR Admin Deactivation workflow button
-                        if (app.isActiveAdmin || app.isDeviceOrProfileOwner || (app.isUninstallBlockedByPolicy && !app.isSystem)) {
-                            GlassPrimaryButton(
-                                text = if (app.isActiveAdmin && !app.isDeviceOrProfileOwner) "Deactivate Admin" else "Policy Locked",
-                                onClick = { blockedAdminAppDialog = app },
-                                modifier = Modifier.weight(1f),
-                                accentColor = GlassPalette.AmberGlow,
-                                icon = Icons.Outlined.Security
-                            )
-                        } else if (!app.isSystem || app.isUpdatedSystem) {
-                            GlassPrimaryButton(
-                                text = if (app.isUpdatedSystem) "Remove Updates" else "Uninstall",
-                                onClick = {
-                                    val uninstallIntent = Intent(
-                                        Intent.ACTION_DELETE,
-                                        Uri.fromParts("package", app.packageName, null)
-                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    runCatching { context.startActivity(uninstallIntent) }
-                                        .onSuccess {
-                                            statusBanner = if (app.isUpdatedSystem) {
-                                                "Opened Android's 'Uninstall updates' confirmation for ${app.label}."
-                                            } else {
-                                                "Opened Android's uninstall confirmation for ${app.label}."
-                                            }
-                                            statusIsError = false
-                                        }
-                                        .onFailure { err ->
-                                            statusBanner = "Couldn't launch uninstall for ${app.label}: ${err.localizedMessage ?: err.javaClass.simpleName}"
-                                            statusIsError = true
-                                        }
-                                },
-                                enabled = app.canDirectUninstall,
-                                modifier = Modifier.weight(1f),
-                                accentColor = GlassPalette.RoseGlow,
-                                icon = Icons.Outlined.DeleteOutline
-                            )
-                        }
+                        GlassPrimaryButton(
+                            text = if (app.isUpdatedSystem) "Remove Updates" else "Uninstall",
+                            onClick = {
+                                val uninstallIntent = Intent(
+                                    Intent.ACTION_DELETE,
+                                    Uri.fromParts("package", app.packageName, null)
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                runCatching { context.startActivity(uninstallIntent) }
+                                    .onSuccess {
+                                        statusBanner = "Launched Android system uninstall dialog for ${app.label} (${app.packageName})."
+                                        statusIsError = false
+                                    }
+                                    .onFailure { err ->
+                                        statusBanner = "Couldn't launch uninstall for ${app.label}: ${err.localizedMessage ?: err.javaClass.simpleName}"
+                                        statusIsError = true
+                                    }
+                            },
+                            enabled = true, // Unlocked so you can test ACTION_DELETE on any package
+                            modifier = Modifier.weight(1f),
+                            accentColor = GlassPalette.RoseGlow,
+                            icon = Icons.Outlined.DeleteOutline
+                        )
                     }
 
-                    // Transparent status footnote
-                    val footnote = when {
-                        app.isDeviceOrProfileOwner ->
-                            "Protected as Device/Profile Owner. Tap 'Policy Locked' for official unenrollment steps."
-                        app.isActiveAdmin ->
-                            "Active Device Administrator — tap 'Deactivate Admin' first to unlock uninstallation."
-                        app.isUninstallBlockedByPolicy && !app.isSystem ->
-                            "Administrator enforces setUninstallBlocked / DISALLOW_UNINSTALL_APPS on this app."
-                        isCriticallyProtected ->
-                            "Protected by NoobFree's critical system safety catalogue (never disabled)."
-                        !commandExecutor.isReady() && app.isSystem ->
-                            "Connect Shizuku to disable/enable eligible system bloatware for User 0."
-                        else -> null
-                    }
-                    if (footnote != null) {
-                        Text(
-                            text = footnote,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = GlassPalette.TextSecondary
-                        )
+                    if (app.isActiveAdmin || app.isDeviceOrProfileOwner || app.isHaloRelated) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            GlassSecondaryButton(
+                                text = "Deactivate in Admin Settings",
+                                onClick = { adminPolicyManager.openDeviceAdminSettings() },
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Outlined.Security
+                            )
+                            GlassSecondaryButton(
+                                text = "Inspector",
+                                onClick = onNavigateToPrivacy
+                            )
+                        }
                     }
                 }
             }

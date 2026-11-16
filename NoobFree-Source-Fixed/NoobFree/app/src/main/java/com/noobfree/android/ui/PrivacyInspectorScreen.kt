@@ -1,7 +1,6 @@
 package com.noobfree.android.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,18 +33,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.noobfree.android.NoobFreeApplication
 import com.noobfree.android.system.AdminPolicyManager
 import com.noobfree.android.system.DiscoveredAdminOrManagementApp
 import com.noobfree.android.system.ManagementPrivilegeRole
+import com.noobfree.android.system.PackageOperationManager
 import com.noobfree.android.ui.theme.GlassPalette
 import com.noobfree.android.viewmodel.MainUiState
 import com.noobfree.android.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun PrivacyInspectorScreen(
@@ -55,6 +58,10 @@ fun PrivacyInspectorScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val appInstance = context.applicationContext as NoobFreeApplication
+    val pkgOpManager = remember { PackageOperationManager(appInstance.shizukuRepository) }
+
     var report by remember { mutableStateOf(uiState.managementReport ?: adminPolicyManager.inspectDeviceManagement()) }
     var actionFeedbackTitle by remember { mutableStateOf<String?>(null) }
     var actionFeedbackBody by remember { mutableStateOf<String?>(null) }
@@ -71,7 +78,7 @@ fun PrivacyInspectorScreen(
             val target = fresh.adminAndManagementApps.find { it.packageName == pendingDeactivationPackage }
             if (target != null && !target.isActiveAdmin) {
                 actionFeedbackTitle = "Administrator Deactivated: ${target.label}"
-                actionFeedbackBody = "${target.label} (${target.packageName}) is no longer an active Device Administrator. You can now tap 'Step 3: Uninstall App' on its card below."
+                actionFeedbackBody = "${target.label} (${target.packageName}) is no longer an active Device Administrator. You can now tap 'Uninstall' on its card below."
                 actionFeedbackIsError = false
                 pendingDeactivationPackage = null
             }
@@ -103,12 +110,8 @@ fun PrivacyInspectorScreen(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "2. Enterprise / Zero-Touch Re-enrollment Warning: If this Acer tablet's serial number or IMEI is registered in Android Zero-Touch Enrollment or an organization's MDM portal (Google Android Device Policy / Halo), performing a factory reset will NOT unenroll it—the tablet will automatically re-download the organization profile when connected to Wi-Fi or cellular data during initial setup.",
+                text = "2. Enterprise / Zero-Touch Re-enrollment Warning: If this Acer tablet's serial number or IMEI is registered in Android Zero-Touch Enrollment or an organization's MDM portal, performing a factory reset may re-download the organization profile during setup.",
                 color = GlassPalette.AmberGlow
-            )
-            Text(
-                text = "3. Android 14–16+ API Boundary: Ordinary legacy Device Administrators may be blocked by Android from calling wipeData(0) unless NoobFree is Device Owner. If Android rejects the call, NoobFree will report the exact SecurityException and offer the System Reset Settings shortcut.",
-                style = MaterialTheme.typography.bodySmall
             )
         }
     }
@@ -127,15 +130,8 @@ fun PrivacyInspectorScreen(
                 fontWeight = FontWeight.SemiBold
             )
             Text("Step 1: Power the tablet completely OFF and disconnect any USB cable.")
-            Text("Step 2: Enter Android Recovery using your Acer tablet's documented hardware key combination (commonly Power + Volume Up held together until the boot menu or Acer logo appears; consult your Acer One 8 T4-82L-G2 user manual as hardware revisions can vary between Volume Up and Volume Down).")
-            Text("Step 3: If a boot mode micro-menu appears ([Recovery Mode], [Fastboot Mode], [Normal]), use Volume Up to move the arrow to [Recovery Mode] and press Volume Down (or Power, per on-screen legend) to select.")
-            Text("Step 4: If an Android 'No Command' screen appears, hold Power and briefly press Volume Up once to reveal the Android Recovery menu.")
-            Text("Step 5: Use Volume keys to highlight 'Wipe data/factory reset' -> press Power -> select 'Factory data reset' -> 'Reboot system now'.")
-            Text(
-                text = "Important Zero-Touch Warning: Hardware recovery reset wipes local storage but does NOT remove cloud-bound Zero-Touch or FRP enrollment. If the tablet re-enrolls during setup, the issuing organization must release the serial/IMEI in their MDM console.",
-                color = GlassPalette.AmberGlow,
-                style = MaterialTheme.typography.bodySmall
-            )
+            Text("Step 2: Enter Android Recovery using your Acer tablet's documented hardware key combination (Power + Volume Up or Volume Down).")
+            Text("Step 3: Highlight 'Wipe data/factory reset' -> press Power -> select 'Factory data reset' -> 'Reboot system now'.")
         }
     }
 
@@ -156,7 +152,6 @@ fun PrivacyInspectorScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Feedback banner if an action was just performed
             if (actionFeedbackTitle != null && actionFeedbackBody != null) {
                 item {
                     val accent = if (actionFeedbackIsError) GlassPalette.RoseGlow else GlassPalette.EmeraldGlow
@@ -164,7 +159,7 @@ fun PrivacyInspectorScreen(
                         title = actionFeedbackTitle!!,
                         subtitle = "Operation Diagnostic Result",
                         icon = if (actionFeedbackIsError) Icons.Outlined.WarningAmber else Icons.Outlined.CheckCircle,
-                        badgeText = if (actionFeedbackIsError) "BLOCKED / ERROR" else "VERIFIED",
+                        badgeText = if (actionFeedbackIsError) "OS RESPONSE" else "EXECUTED",
                         badgeColor = accent
                     ) {
                         Text(
@@ -213,13 +208,6 @@ fun PrivacyInspectorScreen(
                         value = report.detectedProfileOwnerPackage ?: "None reported to public API",
                         valueColor = if (report.detectedProfileOwnerPackage != null) GlassPalette.AmberGlow else GlassPalette.TextPrimary
                     )
-                    KeyValueRow(
-                        label = "Current User Context",
-                        value = buildString {
-                            append(if (report.isSystemUser) "Primary/System User" else "Secondary User")
-                            append(if (report.isRunningInManagedProfile) " (Managed Work Profile)" else " (Personal Profile)")
-                        }
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -231,7 +219,7 @@ fun PrivacyInspectorScreen(
                             accentColor = GlassPalette.CyanGlow
                         )
                         GlassSecondaryButton(
-                            text = "Recheck Status",
+                            text = "Recheck",
                             onClick = { rescan() },
                             icon = Icons.Outlined.Refresh
                         )
@@ -239,17 +227,17 @@ fun PrivacyInspectorScreen(
                 }
             }
 
-            // Section 2: Google Android Device Policy & Active Administrators Workflow
+            // Section 2: Google Android Device Policy & Active Administrators Workflow (All Buttons Unlocked!)
             item {
                 ControlCard(
-                    title = "Administrator & DPC Removal Workflow",
+                    title = "Administrator & DPC Actions (All Unlocked)",
                     subtitle = "${report.adminAndManagementApps.size} management / admin package(s) inspected",
                     icon = Icons.Outlined.AdminPanelSettings,
                     badgeText = "${report.adminAndManagementApps.count { it.isActiveAdmin }} ACTIVE",
                     badgeColor = GlassPalette.CyanGlow
                 ) {
                     Text(
-                        text = "Android blocks uninstalling any app while its DeviceAdminReceiver is active ('Can't uninstall active device admin app'). Follow the 3-step workflow on each card below: (1) Deactivate in Android Admin Settings -> (2) Tap Recheck Status -> (3) Tap Uninstall once inactive. If Android greys out 'Deactivate', that app is locked by Device Owner or OEM MDM policy.",
+                        text = "All action buttons (Deactivate in Admin Settings, System Uninstall Dialog, Shizuku User-0 Uninstall/Disable, and App Info) are enabled on every card below so you can test each method directly.",
                         style = MaterialTheme.typography.bodySmall,
                         color = GlassPalette.TextSecondary
                     )
@@ -274,19 +262,44 @@ fun PrivacyInspectorScreen(
                         runCatching {
                             context.startActivity(adminPolicyManager.buildUninstallIntent(app.packageName))
                         }.onSuccess {
-                            actionFeedbackTitle = "Opened System Uninstall Confirmation"
-                            actionFeedbackBody = "Requested Android PackageInstaller to uninstall ${app.label} (${app.packageName}). Confirm the system dialog, then tap Recheck Status."
+                            actionFeedbackTitle = "Launched System Uninstall Dialog"
+                            actionFeedbackBody = "Opened Android PackageInstaller ACTION_DELETE for ${app.label} (${app.packageName})."
                             actionFeedbackIsError = false
                         }.onFailure { err ->
-                            actionFeedbackTitle = "Uninstall Request Rejected"
-                            actionFeedbackBody = "Android blocked launching ACTION_DELETE for ${app.packageName}: ${err.localizedMessage ?: err.javaClass.simpleName}"
+                            actionFeedbackTitle = "System Uninstall Intent Error"
+                            actionFeedbackBody = "Could not launch ACTION_DELETE for ${app.packageName}: ${err.localizedMessage ?: err.javaClass.simpleName}"
                             actionFeedbackIsError = true
+                        }
+                    },
+                    onShizukuUninstallUserZero = {
+                        scope.launch {
+                            val entry = pkgOpManager.uninstallForUserZeroViaShizuku(app.packageName)
+                            viewModel.recordExternalOperation(entry)
+                            actionFeedbackTitle = if (entry.success) "Shizuku Uninstall Succeeded" else "Shizuku Uninstall Response"
+                            actionFeedbackBody = entry.detail
+                            actionFeedbackIsError = !entry.success
+                            rescan()
+                        }
+                    },
+                    onShizukuRemoveAdmin = {
+                        val compStr = app.componentName?.flattenToShortString()
+                        if (compStr != null) {
+                            scope.launch {
+                                val entry = pkgOpManager.removeActiveAdminViaShizuku(compStr)
+                                viewModel.recordExternalOperation(entry)
+                                actionFeedbackTitle = if (entry.success) "Admin Removed via Shizuku" else "DPM Shell Response"
+                                actionFeedbackBody = entry.detail
+                                actionFeedbackIsError = !entry.success
+                                rescan()
+                            }
+                        } else {
+                            adminPolicyManager.openDeviceAdminSettings()
                         }
                     }
                 )
             }
 
-            // Section 3: Discovered Halo Applications (Dynamic Discovery)
+            // Section 3: Discovered Halo Applications (With Direct Action Buttons)
             item {
                 ControlCard(
                     title = "Discovered Halo Suite Packages",
@@ -299,11 +312,6 @@ fun PrivacyInspectorScreen(
                     badgeText = if (report.haloApps.isEmpty()) "0 FOUND" else "${report.haloApps.size} FOUND",
                     badgeColor = if (report.haloApps.isEmpty()) GlassPalette.EmeraldGlow else GlassPalette.VioletGlow
                 ) {
-                    Text(
-                        text = "NoobFree inspects every installed package dynamically rather than guessing package names, and checks whether each Halo app (such as Halo Agent, Halo ThreatX, Halo Remote, or Halo Forge) actually registers a DeviceAdminReceiver or is protected by another administrator ('app is required by the device administrator').",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GlassPalette.TextSecondary
-                    )
                     if (report.haloApps.isEmpty()) {
                         Text(
                             text = "No packages matching 'Halo' or 'ThreatX' were returned by PackageManager on this runtime.",
@@ -323,11 +331,27 @@ fun PrivacyInspectorScreen(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = GlassPalette.CyanGlow
                             )
-                            Text(
-                                text = halo.removalGuidance,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = GlassPalette.TextSecondary
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                GlassPrimaryButton(
+                                    text = "Uninstall",
+                                    onClick = {
+                                        runCatching {
+                                            context.startActivity(adminPolicyManager.buildUninstallIntent(halo.packageName))
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    accentColor = GlassPalette.RoseGlow,
+                                    icon = Icons.Outlined.DeleteOutline
+                                )
+                                GlassSecondaryButton(
+                                    text = "App Info",
+                                    onClick = { adminPolicyManager.openAppDetails(halo.packageName) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -343,22 +367,9 @@ fun PrivacyInspectorScreen(
                     badgeText = if (active) "ADMIN ACTIVE" else "ADMIN INACTIVE",
                     badgeColor = if (active) GlassPalette.CyanGlow else GlassPalette.TextSecondary
                 ) {
-                    Text(
-                        text = "Activating NoobFree as an ordinary Device Administrator allows immediate screen locking and authorized local wipeData(0) requests. It does NOT make NoobFree a Device Owner and cannot remove Google Android Device Policy or Halo Agent.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GlassPalette.TextSecondary
-                    )
                     KeyValueRow(
                         label = "NoobFree Admin Receiver",
                         value = if (active) "Active (Enabled by user)" else "Inactive"
-                    )
-                    KeyValueRow(
-                        label = "NoobFree Owner Role",
-                        value = when {
-                            report.noobFreeIsDeviceOwner -> "Device Owner"
-                            report.noobFreeIsProfileOwner -> "Profile Owner"
-                            else -> "None (Ordinary App)"
-                        }
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -370,10 +381,6 @@ fun PrivacyInspectorScreen(
                                 onClick = {
                                     runCatching {
                                         context.startActivity(adminPolicyManager.buildActivateNoobFreeAdminIntent())
-                                    }.onFailure { err ->
-                                        actionFeedbackTitle = "Activation Dialog Failed"
-                                        actionFeedbackBody = err.localizedMessage ?: "Could not open ACTION_ADD_DEVICE_ADMIN."
-                                        actionFeedbackIsError = true
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -406,11 +413,6 @@ fun PrivacyInspectorScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
-                    Text(
-                        text = "Factory Data Reset Options",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -472,11 +474,7 @@ fun PrivacyInspectorScreen(
                         color = Color.White
                     )
                     Text(
-                        text = if (report.enabledAccessibilityServices.isEmpty()) {
-                            "None enabled."
-                        } else {
-                            report.enabledAccessibilityServices.joinToString("\n")
-                        },
+                        text = if (report.enabledAccessibilityServices.isEmpty()) "None enabled." else report.enabledAccessibilityServices.joinToString("\n"),
                         style = MaterialTheme.typography.bodySmall,
                         color = GlassPalette.TextSecondary
                     )
@@ -487,11 +485,7 @@ fun PrivacyInspectorScreen(
                         color = Color.White
                     )
                     Text(
-                        text = if (report.allowedOverlayPackages.isEmpty()) {
-                            "No packages reported with MODE_ALLOWED."
-                        } else {
-                            report.allowedOverlayPackages.joinToString("\n")
-                        },
+                        text = if (report.allowedOverlayPackages.isEmpty()) "No packages reported with MODE_ALLOWED." else report.allowedOverlayPackages.joinToString("\n"),
                         style = MaterialTheme.typography.bodySmall,
                         color = GlassPalette.TextSecondary
                     )
@@ -508,7 +502,9 @@ private fun AdminPackageWorkflowCard(
     onLaunchManagementUi: () -> Unit,
     onOpenAppDetails: () -> Unit,
     onRecheck: () -> Unit,
-    onRequestUninstall: () -> Unit
+    onRequestUninstall: () -> Unit,
+    onShizukuUninstallUserZero: () -> Unit,
+    onShizukuRemoveAdmin: () -> Unit
 ) {
     val badgeColor = when (app.role) {
         ManagementPrivilegeRole.DEVICE_OWNER -> GlassPalette.RoseGlow
@@ -533,7 +529,7 @@ private fun AdminPackageWorkflowCard(
         )
         KeyValueRow(
             "Active Device Admin",
-            if (app.isActiveAdmin) "YES (Blocks direct uninstall)" else "NO (Inactive)",
+            if (app.isActiveAdmin) "YES" else "NO (Inactive)",
             valueColor = if (app.isActiveAdmin) GlassPalette.AmberGlow else GlassPalette.EmeraldGlow
         )
         KeyValueRow(
@@ -545,38 +541,37 @@ private fun AdminPackageWorkflowCard(
             },
             valueColor = if (app.isDeviceOwner || app.isProfileOwner) GlassPalette.RoseGlow else GlassPalette.TextPrimary
         )
-        if (app.declaredPolicies.isNotEmpty()) {
-            KeyValueRow("Declared Admin Policies", app.declaredPolicies.joinToString(", "))
-        }
-        Text(
-            text = app.removalGuidance,
-            style = MaterialTheme.typography.bodySmall,
-            color = GlassPalette.TextSecondary
-        )
 
-        // Step-by-step action buttons tailored to the exact role
-        if (app.canDeactivateInSettings) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                GlassPrimaryButton(
-                    text = "1. Deactivate in Admin Settings",
-                    onClick = onOpenAdminSettings,
-                    modifier = Modifier.weight(1f),
-                    accentColor = GlassPalette.AmberGlow
-                )
-                GlassSecondaryButton(
-                    text = "2. Recheck",
-                    onClick = onRecheck
-                )
-            }
-        }
-
+        // Row 1: Admin Settings + Recheck (Always active)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            GlassPrimaryButton(
+                text = "Deactivate in Admin Settings",
+                onClick = onOpenAdminSettings,
+                modifier = Modifier.weight(1f),
+                accentColor = GlassPalette.AmberGlow
+            )
+            GlassSecondaryButton(
+                text = "Recheck",
+                onClick = onRecheck
+            )
+        }
+
+        // Row 2: Direct Uninstall (Always ENABLED!) + Open App + App Info
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            GlassPrimaryButton(
+                text = "Uninstall",
+                onClick = onRequestUninstall,
+                enabled = true, // Always unlocked so you can trigger ACTION_DELETE anytime
+                modifier = Modifier.weight(1f),
+                accentColor = GlassPalette.RoseGlow,
+                icon = Icons.Outlined.DeleteOutline
+            )
             GlassSecondaryButton(
                 text = "Open App",
                 onClick = onLaunchManagementUi,
@@ -587,13 +582,22 @@ private fun AdminPackageWorkflowCard(
                 onClick = onOpenAppDetails,
                 modifier = Modifier.weight(1f)
             )
-            GlassPrimaryButton(
-                text = if (app.isUpdatedSystemApp) "Uninstall Updates" else "Uninstall",
-                onClick = onRequestUninstall,
-                enabled = app.canDirectUninstallNow,
-                modifier = Modifier.weight(1f),
-                accentColor = if (app.canDirectUninstallNow) GlassPalette.RoseGlow else GlassPalette.TextMuted,
-                icon = Icons.Outlined.DeleteOutline
+        }
+
+        // Row 3: Shizuku Shell Remove Admin + Shizuku User-0 Uninstall
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            GlassSecondaryButton(
+                text = "Shell Remove Admin",
+                onClick = onShizukuRemoveAdmin,
+                modifier = Modifier.weight(1f)
+            )
+            GlassSecondaryButton(
+                text = "Shell Uninstall (User 0)",
+                onClick = onShizukuUninstallUserZero,
+                modifier = Modifier.weight(1f)
             )
         }
     }

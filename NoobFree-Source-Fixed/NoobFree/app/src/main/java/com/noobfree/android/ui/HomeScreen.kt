@@ -15,23 +15,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Animation
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.DeveloperMode
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Usb
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -75,7 +71,7 @@ fun HomeScreen(
 ) {
     var selectedWallpaperDest by remember { mutableStateOf(WallpaperDestination.HOME_SCREEN) }
     val wallpaperLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
+        contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
             viewModel.applyWallpaper(uri, selectedWallpaperDest)
@@ -123,7 +119,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        StatusPill(text = "GLASS EDITION v1.2.0", accentColor = GlassPalette.CyanGlow)
+                        StatusPill(text = "GLASS EDITION v1.2.2", accentColor = GlassPalette.CyanGlow)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "NOOBFREE",
@@ -220,7 +216,7 @@ fun HomeScreen(
             ) {
                 Text(
                     text = mgmt?.overallSummary
-                        ?: "Distinguish ordinary Device Administrators from Device Owner, inspect Google Android Device Policy & Halo apps, and run guided admin deactivation or factory reset workflows.",
+                        ?: "Inspect active administrators, Google Android Device Policy & Halo apps, and test direct Uninstall, Admin Deactivation, and Shizuku removal actions.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = GlassPalette.TextSecondary
                 )
@@ -262,37 +258,29 @@ fun HomeScreen(
             }
         }
 
-        // Card 2: Developer Options (Shizuku-Independent Guided Workflow + Optional Shizuku)
+        // Card 2: Developer Options (Direct Launch + Direct Flag + Wireless Debugging)
         item {
             val dev = uiState.developerOptions
-            val shizukuReady = uiState.shizukuStatus.isReady
             val badgeColor = when {
-                dev.isBlockedByAdminRestriction -> GlassPalette.RoseGlow
                 dev.isEnabled -> GlassPalette.EmeraldGlow
-                else -> GlassPalette.AmberGlow
+                dev.isBlockedByAdminRestriction -> GlassPalette.AmberGlow
+                else -> GlassPalette.CyanGlow
             }
             val badgeText = when {
-                dev.isBlockedByAdminRestriction -> "POLICY BLOCKED"
                 dev.isEnabled -> "ENABLED"
-                else -> "7-TAP READY"
+                dev.isBlockedByAdminRestriction -> "ADMIN LOCKED"
+                else -> "READY"
             }
 
             ControlCard(
-                title = "Developer Options (No Shizuku Needed)",
+                title = "Developer Options & Direct Launchers",
                 subtitle = dev.verificationSource,
                 icon = Icons.Outlined.DeveloperMode,
                 badgeText = badgeText,
                 badgeColor = badgeColor
             ) {
                 Text(
-                    text = when {
-                        dev.isBlockedByAdminRestriction ->
-                            "UserManager reports DISALLOW_DEBUGGING_FEATURES = true. An active administrator blocks enabling Developer Options until deactivated or unenrolled."
-                        dev.isEnabled ->
-                            "Developer Options are active on this tablet! Tap 'Open Developer Options' to access USB Debugging, Wireless Debugging, or hardware overlays."
-                        else ->
-                            "Enable Developer Options without Shizuku: tap 'Open About Tablet (7-Tap)' below and tap Build number 7 times. NoobFree automatically verifies activation when you return."
-                    },
+                    text = "If Build Number in About Tablet is blocked by an administrator, use 'Direct Open Dev Options' or 'Wireless / USB Debug' below to launch Android's DevelopmentSettings activity directly, or tap 'Try Direct Enable Flag'.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = GlassPalette.TextSecondary
                 )
@@ -300,31 +288,31 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (dev.isEnabled) {
-                        GlassPrimaryButton(
-                            text = "Open Developer Options",
-                            onClick = { viewModel.openDeveloperOptionsSettings() },
-                            modifier = Modifier.weight(1f),
-                            accentColor = GlassPalette.EmeraldGlow
-                        )
-                    } else {
-                        GlassPrimaryButton(
-                            text = "Open About Tablet (7-Tap)",
-                            onClick = { viewModel.openDeviceInfoSettings() },
-                            modifier = Modifier.weight(1f),
-                            accentColor = GlassPalette.CyanGlow
-                        )
-                    }
+                    GlassPrimaryButton(
+                        text = "Direct Open Dev Options",
+                        onClick = { viewModel.openDeveloperOptionsSettings() },
+                        modifier = Modifier.weight(1f),
+                        accentColor = GlassPalette.CyanGlow
+                    )
                     GlassSecondaryButton(
-                        text = "Interactive Guide",
-                        onClick = onNavigateToDeveloper
+                        text = "Try Direct Enable Flag",
+                        onClick = { viewModel.enableDeveloperOptions() },
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                if (shizukuReady && !dev.isEnabled && !dev.isBlockedByAdminRestriction) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     GlassSecondaryButton(
-                        text = "1-Tap Enable via Connected Shizuku Shell",
-                        onClick = { viewModel.enableDeveloperOptions() },
-                        modifier = Modifier.fillMaxWidth()
+                        text = "Wireless / USB Debug",
+                        onClick = { viewModel.openWirelessDebuggingSettings() },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GlassSecondaryButton(
+                        text = "All Dev Methods",
+                        onClick = onNavigateToDeveloper,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -333,14 +321,14 @@ fun HomeScreen(
         // Card 3: App Manager, Uninstall & Safe System Debloater
         item {
             ControlCard(
-                title = "App Manager & Safe Debloat Engine",
-                subtitle = "Uninstall user apps • Deactivate admins first • Safe system debloat",
+                title = "App Manager & Debloat Engine",
+                subtitle = "All Uninstall & Admin buttons unlocked for direct testing",
                 icon = Icons.Outlined.Apps,
-                badgeText = "READY",
+                badgeText = "UNLOCKED",
                 badgeColor = GlassPalette.VioletGlow
             ) {
                 Text(
-                    text = "Browse all installed user, system, Halo, and administrator apps with icons, versions, category filters, and safety badges. Uninstall eligible apps without Shizuku, or disable non-critical bloatware via Shizuku with 1-tap restore.",
+                    text = "All apps (including User, System, Halo, and Active Administrators) have unlocked Uninstall, Deactivate Admin, App Info, and Shizuku Disable/Uninstall buttons so you can test every operation directly.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = GlassPalette.TextSecondary
                 )
@@ -353,20 +341,18 @@ fun HomeScreen(
             }
         }
 
-        // Card 4: Wallpaper Studio (Works Without Shizuku)
+        // Card 4: Wallpaper Studio (3-Stage Fallback + 1-Tap Built-In Glass Wallpaper)
         item {
             val wp = uiState.wallpaperPreflight
-            val canSet = wp?.canApplyWallpaper != false
             ControlCard(
-                title = "Wallpaper Studio",
-                subtitle = wp?.statusHeadline ?: "Checking WallpaperManager & DISALLOW_SET_WALLPAPER...",
+                title = "Wallpaper Studio (3-Stage Engine)",
+                subtitle = wp?.statusHeadline ?: "Multi-stage setBitmap & setStream fallback",
                 icon = Icons.Outlined.Image,
-                badgeText = if (canSet) "AVAILABLE" else "RESTRICTED",
-                badgeColor = if (canSet) GlassPalette.CyanGlow else GlassPalette.RoseGlow
+                badgeText = "UNLOCKED",
+                badgeColor = GlassPalette.CyanGlow
             ) {
                 Text(
-                    text = wp?.statusDetail
-                        ?: "Select any local JPEG, PNG, or WebP image. NoobFree safely downsamples high-resolution images to prevent memory errors on 2GB/3GB tablets.",
+                    text = "Uses a 3-stage fallback (flagged setBitmap -> legacy setBitmap -> setStream) and includes a 1-Tap Built-In Glass Wallpaper generator so you can test applying a wallpaper immediately without file URI issues.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = GlassPalette.TextSecondary
                 )
@@ -391,14 +377,25 @@ fun HomeScreen(
                         )
                     }
                 }
-                GlassPrimaryButton(
-                    text = if (uiState.isExecutingAction) "Applying Wallpaper..." else "Pick Image & Apply to ${selectedWallpaperDest.label}",
-                    onClick = { wallpaperLauncher.launch(arrayOf("image/*")) },
-                    enabled = canSet && !uiState.isExecutingAction,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    accentColor = GlassPalette.CyanGlow,
-                    icon = Icons.Outlined.Image
-                )
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GlassPrimaryButton(
+                        text = if (uiState.isExecutingAction) "Applying..." else "Pick Image (${selectedWallpaperDest.label})",
+                        onClick = { wallpaperLauncher.launch("image/*") },
+                        enabled = !uiState.isExecutingAction,
+                        modifier = Modifier.weight(1f),
+                        accentColor = GlassPalette.CyanGlow,
+                        icon = Icons.Outlined.Image
+                    )
+                    GlassSecondaryButton(
+                        text = "1-Tap Glass Wall",
+                        onClick = { viewModel.applyBuiltInGlassWallpaper(selectedWallpaperDest) },
+                        enabled = !uiState.isExecutingAction,
+                        icon = Icons.Outlined.AutoAwesome
+                    )
+                }
             }
         }
 
@@ -422,23 +419,16 @@ fun HomeScreen(
 
             ControlCard(
                 title = "Optional Shizuku Shell Bridge",
-                subtitle = "Privilege: ${status.privilegeLabel} (Optional for ADB-level features)",
+                subtitle = "Privilege: ${status.privilegeLabel}",
                 icon = Icons.Outlined.Security,
                 badgeText = status.statusTitle.uppercase(),
                 badgeColor = badgeColor
             ) {
                 Text(
-                    text = "${status.statusDescription} Shizuku is strictly optional and only needed for system-package disable (`pm disable-user`), animation scales, and background process limits.",
+                    text = status.statusDescription,
                     style = MaterialTheme.typography.bodyMedium,
                     color = GlassPalette.TextSecondary
                 )
-                if (status.errorDetail != null) {
-                    Text(
-                        text = status.errorDetail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GlassPalette.RoseGlow
-                    )
-                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)

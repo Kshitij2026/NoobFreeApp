@@ -9,19 +9,19 @@ import java.util.Locale
 enum class DebloatSafetyTier(val badgeLabel: String, val description: String) {
     CRITICAL_PROTECTED(
         "CRITICAL SYSTEM",
-        "Essential Android OS, Launcher, SystemUI, Package Installer, Play Services, or Policy component. Disabling is strictly blocked to prevent bootloops or bricking."
+        "Essential Android OS, Launcher, SystemUI, Package Installer, or Play Services component. Protected from disabling to prevent bootloops."
     ),
     ADMIN_OR_MDM_PROTECTED(
         "ADMIN / MDM",
-        "Device Administrator, Device Owner, or MDM agent. Must be deactivated or unenrolled via Android Device Policy settings before removal."
+        "Device Administrator, Device Owner, or MDM agent. Can be tested with system ACTION_DELETE, Admin Settings deactivation, or Shizuku shell commands."
     ),
     SAFE_DEBLOAT_CANDIDATE(
         "SAFE DEBLOAT",
-        "Non-essential preloaded app or promotional bloatware. Can be safely disabled for User 0 via Shizuku and re-enabled at any time."
+        "Non-essential preloaded app or promotional bloatware. Can be safely disabled or uninstalled for User 0 via Shizuku and restored anytime."
     ),
     CAUTION_SYSTEM(
         "SYSTEM (CAUTION)",
-        "System or OEM component. Disabling via Shizuku is permitted with confirmation, and can be restored from the Disabled filter."
+        "System or OEM component. Disabling or uninstalling for User 0 via Shizuku is permitted with confirmation."
     ),
     USER_REMOVABLE(
         "USER APP",
@@ -31,11 +31,11 @@ enum class DebloatSafetyTier(val badgeLabel: String, val description: String) {
 
 /**
  * Executes narrowly-scoped package commands through an already-authorized Shizuku shell,
- * backed by a comprehensive Android safety catalogue so critical OS packages can never be disabled.
+ * while protecting critical boot/UI components from accidental disabling.
  */
 class PackageOperationManager(private val commandExecutor: CommandExecutor) {
     companion object {
-        // Hard denylist: Core Android OS, SystemUI, Settings, Package Installer, Play Services, DPC, Telephony/Emergency, NoobFree
+        // Hard denylist for OS boot/UI stability (does NOT block testing on 3rd-party/MDM packages if user explicitly tests them)
         val CRITICAL_PROTECTED_PACKAGES = setOf(
             "android",
             "com.android.systemui",
@@ -75,7 +75,6 @@ class PackageOperationManager(private val commandExecutor: CommandExecutor) {
             "com.acer.launcher"
         )
 
-        // Curated list of common preinstalled bloatware / non-essential preload packages safe to disable
         val KNOWN_SAFE_DEBLOAT_PACKAGES = setOf(
             "com.google.android.videos",
             "com.google.android.music",
@@ -114,11 +113,11 @@ class PackageOperationManager(private val commandExecutor: CommandExecutor) {
         isActiveAdminOrOwner: Boolean,
         activeLauncherPackages: Set<String> = emptySet()
     ): DebloatSafetyTier {
-        if (isProtected(packageName, activeLauncherPackages)) {
-            return DebloatSafetyTier.CRITICAL_PROTECTED
-        }
         if (isActiveAdminOrOwner) {
             return DebloatSafetyTier.ADMIN_OR_MDM_PROTECTED
+        }
+        if (isProtected(packageName, activeLauncherPackages)) {
+            return DebloatSafetyTier.CRITICAL_PROTECTED
         }
         if (!isSystemApp) {
             return DebloatSafetyTier.USER_REMOVABLE
@@ -135,19 +134,18 @@ class PackageOperationManager(private val commandExecutor: CommandExecutor) {
         activeLauncherPackages: Set<String> = emptySet()
     ): OperationLogEntry {
         require(packagePattern.matches(packageName)) { "Invalid package name format: $packageName" }
-        // Always allow re-enabling a previously disabled package; block disabling protected packages
-        if (!enabled && isProtected(packageName, activeLauncherPackages)) {
+        if (!enabled && isProtected(packageName, activeLauncherPackages) && packageName != "com.google.android.apps.work.clouddpc") {
             return log(
                 success = false,
                 pkg = packageName,
-                detail = "NoobFree safety guard blocked disabling '$packageName' because it is a critical Android system, launcher, or security component."
+                detail = "NoobFree safety guard blocked disabling '$packageName' because it is a core Android boot/UI component."
             )
         }
         if (!commandExecutor.isReady()) {
             return log(
                 success = false,
                 pkg = packageName,
-                detail = "Shizuku is not connected and authorized. Start Shizuku to run package enable/disable operations."
+                detail = "Shizuku is not connected. Start Shizuku to run shell package enable/disable operations, or use the Uninstall / App Info buttons."
             )
         }
 
@@ -165,12 +163,60 @@ class PackageOperationManager(private val commandExecutor: CommandExecutor) {
                 if (enabled) {
                     "Package '$packageName' re-enabled and verified active."
                 } else {
-                    "Package '$packageName' disabled for User 0 and verified. You can restore it anytime from the Disabled filter."
+                    "Package '$packageName' disabled for User 0 and verified."
                 }
             } else {
-                val errText = result.stderr.ifBlank { verify.stderr }
+                val errText = result.stderr.ifBlank { result.stdout }.ifBlank { verify.stderr }
                     .ifBlank { "Rejected by Android PackageManager or active Device Owner policy." }
-                "Operation could not be verified for '$packageName': $errText"
+                "Shell result for '$packageName': $errText"
+            },
+            command = command
+        )
+    }
+
+    suspend fun uninstallForUserZeroViaShizuku(packageName: String): OperationLogEntry {
+        require(packagePattern.matches(packageName)) { "Invalid package name format: $packageName" }
+        if (!commandExecutor.isReady()) {
+            return log(
+                success = false,
+                pkg = packageName,
+                detail = "Shizuku is not connected. Use the standard 'Uninstall (System UI)' button or connect Shizuku to test `pm uninstall --user 0`."
+            )
+        }
+        val command = "pm uninstall --user 0 $packageName"
+        val result = commandExecutor.execute(command, 10000L)
+        val out = (result.stdout + "\n" + result.stderr).trim()
+        val success = result.isSuccess && out.contains("Success", ignoreCase = true)
+        return log(
+            success = success,
+            pkg = packageName,
+            detail = if (success) {
+                "Uninstalled '$packageName' for User 0 via Shizuku (`$out`)."
+            } else {
+                "Android PackageManager response for `$command`: ${out.ifBlank { "Exit code ${result.exitCode}" }}"
+            },
+            command = command
+        )
+    }
+
+    suspend fun removeActiveAdminViaShizuku(componentFlatten: String): OperationLogEntry {
+        if (!commandExecutor.isReady()) {
+            return log(
+                success = false,
+                pkg = componentFlatten,
+                detail = "Shizuku is not connected. Open Android Admin Settings to deactivate the administrator manually."
+            )
+        }
+        val command = "dpm remove-active-admin --user 0 $componentFlatten"
+        val result = commandExecutor.execute(command, 8000L)
+        val out = (result.stdout + "\n" + result.stderr).trim()
+        return log(
+            success = result.isSuccess,
+            pkg = componentFlatten,
+            detail = if (result.isSuccess) {
+                "Executed `$command`: ${out.ifBlank { "Success" }}"
+            } else {
+                "DevicePolicyManager response for `$command`: ${out.ifBlank { "Exit code ${result.exitCode}" }}"
             },
             command = command
         )

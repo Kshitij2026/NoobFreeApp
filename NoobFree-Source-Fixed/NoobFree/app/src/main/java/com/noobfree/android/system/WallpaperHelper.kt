@@ -7,6 +7,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.net.Uri
 import android.os.Build
 import android.os.UserManager
@@ -30,11 +35,9 @@ data class WallpaperPreflightState(
     val statusHeadline: String,
     val statusDetail: String
 ) {
+    // Never grey out the UI button: always allow the user to test applying a wallpaper
     val canApplyWallpaper: Boolean
-        get() = hasManifestPermission &&
-            isWallpaperSupported &&
-            isSetWallpaperAllowed &&
-            !isBlockedByUserRestriction
+        get() = true
 }
 
 data class WallpaperApplyOutcome(
@@ -47,10 +50,13 @@ data class WallpaperApplyOutcome(
 )
 
 /**
- * Reliable, memory-safe Wallpaper engine for Android 8.0–16+.
- * Validates permissions, UserManager restrictions (DISALLOW_SET_WALLPAPER),
- * WallpaperManager eligibility, URI stream readability, and safe bitmap downsampling
- * (including RGB_565 fallback for 2GB/3GB RAM tablets like Acer One 8 T4-82L-G2).
+ * Multi-strategy Wallpaper engine for Android 8.0–16+.
+ * Never pre-blocks the UI button: always attempts a 3-stage API fallback chain:
+ *  1) WallpaperManager.setBitmap(bitmap, null, true, flags)
+ *  2) WallpaperManager.setBitmap(bitmap) (universal 1-arg fallback)
+ *  3) WallpaperManager.setStream(inputStream) (raw stream fallback)
+ * Also provides a 1-tap built-in Glass Gradient wallpaper generator (no file URI required)
+ * and a system ACTION_ATTACH_DATA wallpaper chooser intent launcher.
  */
 class WallpaperHelper(
     private val context: Context,
@@ -59,10 +65,6 @@ class WallpaperHelper(
     companion object {
         const val DEFAULT_MAX_WALLPAPER_DIMENSION = 2560
 
-        /**
-         * Pure helper for calculating power-of-two BitmapFactory.inSampleSize.
-         * Testable in local JVM unit tests.
-         */
         fun calculateInSampleSize(
             sourceWidth: Int,
             sourceHeight: Int,
@@ -92,25 +94,19 @@ class WallpaperHelper(
         }.getOrDefault(false)
 
         val wm = runCatching { WallpaperManager.getInstance(context) }.getOrNull()
-        val supported = runCatching { wm?.isWallpaperSupported == true }.getOrDefault(false)
-        val allowed = runCatching { wm?.isSetWallpaperAllowed == true }.getOrDefault(false)
+        val supported = runCatching { wm?.isWallpaperSupported == true }.getOrDefault(true)
+        val allowed = runCatching { wm?.isSetWallpaperAllowed == true }.getOrDefault(true)
 
         val (headline, detail) = when {
             userRestricted ->
-                "Blocked by DISALLOW_SET_WALLPAPER" to
-                    "UserManager reports that an active Device Owner or administrator has restricted changing the wallpaper on this user profile."
-            !supported ->
-                "Wallpaper Not Supported" to
-                    "WallpaperManager.isWallpaperSupported() returned false on this device/profile."
+                "Notice: DISALLOW_SET_WALLPAPER Reported" to
+                    "UserManager reports DISALLOW_SET_WALLPAPER = true, but Wallpaper Studio remains unlocked so you can test direct setBitmap/setStream and system intent methods."
             !allowed ->
-                "Wallpaper Modification Disallowed" to
-                    "WallpaperManager.isSetWallpaperAllowed() returned false. An OEM launcher or enterprise policy locks the current wallpaper."
-            !hasPerm ->
-                "Missing SET_WALLPAPER Permission" to
-                    "Android did not grant android.permission.SET_WALLPAPER to this package."
+                "Notice: isSetWallpaperAllowed = false" to
+                    "WallpaperManager reports setWallpaperAllowed = false, but all Wallpaper Studio buttons remain active for direct testing."
             else ->
                 "Ready to Apply Wallpaper" to
-                    "SET_WALLPAPER permission granted, WallpaperManager is active, and no visible DISALLOW_SET_WALLPAPER policy is enforced."
+                    "Multi-stage Wallpaper engine active (flagged setBitmap -> legacy setBitmap -> setStream fallback)."
         }
 
         return WallpaperPreflightState(
@@ -127,16 +123,6 @@ class WallpaperHelper(
         uri: Uri,
         destination: WallpaperDestination = WallpaperDestination.HOME_SCREEN
     ): WallpaperApplyOutcome = withContext(ioDispatcher) {
-        val preflight = checkEligibility()
-        if (!preflight.canApplyWallpaper) {
-            return@withContext WallpaperApplyOutcome(
-                success = false,
-                destination = destination,
-                message = "${preflight.statusHeadline}: ${preflight.statusDetail}"
-            )
-        }
-
-        // Persist or verify URI read grant if the picker supplied one
         runCatching {
             context.contentResolver.takePersistableUriPermission(
                 uri,
@@ -144,7 +130,6 @@ class WallpaperHelper(
             )
         }
 
-        // Step 1: Decode bounds only
         val boundsOptions = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
@@ -165,15 +150,15 @@ class WallpaperHelper(
             return@withContext WallpaperApplyOutcome(
                 success = false,
                 destination = destination,
-                message = "Selected file is not a valid or readable image (decoded bounds: ${boundsOptions.outWidth}x${boundsOptions.outHeight}). Please select a local JPEG, PNG, or WebP image."
+                message = "Selected file could not be decoded (${boundsOptions.outWidth}x${boundsOptions.outHeight}). Try a local JPG or PNG image."
             )
         }
 
         val wm = WallpaperManager.getInstance(context)
         val desiredMax = runCatching {
             max(max(wm.desiredMinimumWidth, wm.desiredMinimumHeight), DEFAULT_MAX_WALLPAPER_DIMENSION)
-                .coerceIn(1280, 3072)
-        }.getOrDefault(DEFAULT_MAX_WALLPAPER_DIMENSION)
+                .coerceIn(1280, 2560)
+        }.getOrDefault(1920)
 
         val sampleSize = calculateInSampleSize(
             sourceWidth = boundsOptions.outWidth,
@@ -181,7 +166,6 @@ class WallpaperHelper(
             maxDimension = desiredMax
         )
 
-        // Step 2: Decode downsampled bitmap with ARGB_8888, falling back to RGB_565 on low memory
         var decodedBitmap: Bitmap? = null
         try {
             decodedBitmap = decodeSampledBitmap(uri, sampleSize, Bitmap.Config.ARGB_8888)
@@ -190,59 +174,185 @@ class WallpaperHelper(
             val bitmap = decodedBitmap ?: return@withContext WallpaperApplyOutcome(
                 success = false,
                 destination = destination,
-                message = "Android BitmapFactory could not decode the image stream. Try choosing a standard JPG or PNG image stored locally on the tablet."
+                message = "BitmapFactory could not decode image stream. Try the 1-Tap Built-In Glass Wallpaper button to test WallpaperManager directly."
             )
 
             val srcDim = "${boundsOptions.outWidth}×${boundsOptions.outHeight}"
             val decDim = "${bitmap.width}×${bitmap.height}"
+            val errors = mutableListOf<String>()
 
-            val wallpaperId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                wm.setBitmap(bitmap, null, true, destination.flags)
-            } else {
-                wm.setBitmap(bitmap)
-                1
+            // Stage 1: Flagged setBitmap (API 24+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val id1 = runCatching {
+                    wm.setBitmap(bitmap, null, true, destination.flags)
+                }.onFailure { errors.add("setBitmap(flags): ${it.javaClass.simpleName}: ${it.localizedMessage}") }
+                    .getOrDefault(0)
+
+                if (id1 > 0) {
+                    return@withContext WallpaperApplyOutcome(
+                        success = true,
+                        destination = destination,
+                        message = "${destination.label} wallpaper updated via setBitmap(flags) (ID #$id1, $decDim).",
+                        sourceDimensions = srcDim,
+                        decodedDimensions = decDim,
+                        sampleSizeUsed = sampleSize
+                    )
+                }
             }
 
-            return@withContext if (wallpaperId > 0) {
-                WallpaperApplyOutcome(
+            // Stage 2: Legacy 1-argument setBitmap(bitmap)
+            val stage2Ok = runCatching {
+                wm.setBitmap(bitmap)
+                true
+            }.onFailure { errors.add("setBitmap(legacy): ${it.javaClass.simpleName}: ${it.localizedMessage}") }
+                .getOrDefault(false)
+
+            if (stage2Ok) {
+                return@withContext WallpaperApplyOutcome(
                     success = true,
                     destination = destination,
-                    message = "${destination.label} wallpaper applied and verified (Wallpaper ID #$wallpaperId, decoded $decDim from $srcDim).",
+                    message = "Wallpaper updated via universal setBitmap(bitmap) fallback ($decDim).",
                     sourceDimensions = srcDim,
                     decodedDimensions = decDim,
                     sampleSizeUsed = sampleSize
+                )
+            }
+
+            // Stage 3: Direct InputStream setStream()
+            val stage3Ok = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        wm.setStream(stream, null, true, destination.flags) > 0
+                    } else {
+                        wm.setStream(stream)
+                        true
+                    }
+                } ?: false
+            }.onFailure { errors.add("setStream: ${it.javaClass.simpleName}: ${it.localizedMessage}") }
+                .getOrDefault(false)
+
+            if (stage3Ok) {
+                return@withContext WallpaperApplyOutcome(
+                    success = true,
+                    destination = destination,
+                    message = "Wallpaper updated via direct setStream() fallback.",
+                    sourceDimensions = srcDim,
+                    decodedDimensions = decDim,
+                    sampleSizeUsed = sampleSize
+                )
+            }
+
+            val errSummary = if (errors.isNotEmpty()) errors.joinToString(" | ") else "WallpaperManager returned 0 (blocked by DISALLOW_SET_WALLPAPER or custom MDM launcher)."
+            return@withContext WallpaperApplyOutcome(
+                success = false,
+                destination = destination,
+                message = "All 3 WallpaperManager methods were rejected by Android OS: $errSummary"
+            )
+        } finally {
+            runCatching { decodedBitmap?.recycle() }
+        }
+    }
+
+    /**
+     * Generates a high-contrast NoobFree Cosmic Glass wallpaper bitmap directly in memory
+     * and applies it through the multi-stage fallback chain (bypasses any URI/file picker issues).
+     */
+    suspend fun applyBuiltInGlassWallpaper(
+        destination: WallpaperDestination = WallpaperDestination.BOTH
+    ): WallpaperApplyOutcome = withContext(ioDispatcher) {
+        val wm = WallpaperManager.getInstance(context)
+        val width = 1200
+        val height = 1920
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        try {
+            val canvas = Canvas(bitmap)
+            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    0f, 0f, width.toFloat(), height.toFloat(),
+                    intArrayOf(0xFF060B19.toInt(), 0xFF0F172A.toInt(), 0xFF1E1040.toInt(), 0xFF060B19.toInt()),
+                    floatArrayOf(0f, 0.35f, 0.72f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+
+            val cyanOrb = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(
+                    width * 0.8f, height * 0.22f, width * 0.65f,
+                    intArrayOf(0x6600E5FF, 0x0000E5FF),
+                    null,
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawCircle(width * 0.8f, height * 0.22f, width * 0.65f, cyanOrb)
+
+            val violetOrb = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(
+                    width * 0.2f, height * 0.68f, width * 0.7f,
+                    intArrayOf(0x66A855F7, 0x00A855F7),
+                    null,
+                    Shader.TileMode.CLAMP
+                )
+            }
+            canvas.drawCircle(width * 0.2f, height * 0.68f, width * 0.7f, violetOrb)
+
+            val errors = mutableListOf<String>()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val id = runCatching { wm.setBitmap(bitmap, null, true, destination.flags) }
+                    .onFailure { errors.add(it.localizedMessage ?: it.javaClass.simpleName) }
+                    .getOrDefault(0)
+                if (id > 0) {
+                    return@withContext WallpaperApplyOutcome(
+                        success = true,
+                        destination = destination,
+                        message = "Built-in NoobFree Cosmic Glass wallpaper applied to ${destination.label} (ID #$id)."
+                    )
+                }
+            }
+
+            val fallbackOk = runCatching {
+                wm.setBitmap(bitmap)
+                true
+            }.onFailure { errors.add(it.localizedMessage ?: it.javaClass.simpleName) }
+                .getOrDefault(false)
+
+            return@withContext if (fallbackOk) {
+                WallpaperApplyOutcome(
+                    success = true,
+                    destination = destination,
+                    message = "Built-in NoobFree Cosmic Glass wallpaper applied via legacy setBitmap()."
                 )
             } else {
                 WallpaperApplyOutcome(
                     success = false,
                     destination = destination,
-                    message = "WallpaperManager.setBitmap() returned 0 (operation suppressed by OEM launcher or active administrator policy).",
-                    sourceDimensions = srcDim,
-                    decodedDimensions = decDim,
-                    sampleSizeUsed = sampleSize
+                    message = "Android OS rejected built-in wallpaper: ${errors.joinToString("; ").ifBlank { "Blocked by DISALLOW_SET_WALLPAPER or MDM launcher overlay." }}"
                 )
             }
-        } catch (oom: OutOfMemoryError) {
-            return@withContext WallpaperApplyOutcome(
-                success = false,
-                destination = destination,
-                message = "Out of memory while decoding large image. Please choose a smaller image file."
-            )
-        } catch (sec: SecurityException) {
-            return@withContext WallpaperApplyOutcome(
-                success = false,
-                destination = destination,
-                message = "SecurityException while setting wallpaper: ${sec.localizedMessage ?: "Blocked by device administrator or URI permission."}"
-            )
-        } catch (e: Exception) {
-            return@withContext WallpaperApplyOutcome(
-                success = false,
-                destination = destination,
-                message = "Failed to set wallpaper: ${e.localizedMessage ?: e.javaClass.simpleName}"
-            )
         } finally {
-            runCatching { decodedBitmap?.recycle() }
+            runCatching { bitmap.recycle() }
         }
+    }
+
+    fun launchSystemWallpaperIntent(uri: Uri): Boolean {
+        val wm = runCatching { WallpaperManager.getInstance(context) }.getOrNull()
+        val cropIntent = runCatching { wm?.getCropAndSetWallpaperIntent(uri) }.getOrNull()
+        val attachIntent = Intent(Intent.ACTION_ATTACH_DATA).apply {
+            addCategory(Intent.CATEGORY_DEFAULT)
+            setDataAndType(uri, "image/*")
+            putExtra("mimeType", "image/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val chooser = Intent.createChooser(attachIntent, "Set wallpaper using").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        for (candidate in listOfNotNull(cropIntent, chooser)) {
+            candidate.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (runCatching { context.startActivity(candidate); true }.getOrDefault(false)) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun decodeSampledBitmap(
