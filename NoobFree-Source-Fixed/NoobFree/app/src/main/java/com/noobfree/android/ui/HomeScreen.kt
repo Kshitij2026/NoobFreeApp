@@ -320,7 +320,8 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AnimationManager.PRESET_SCALES.forEach { preset ->
-                        val selected = anim.uniformScale != null && abs(anim.uniformScale - preset) < 0.01f
+                        val uniformScale = anim.uniformScale
+                        val selected = uniformScale != null && abs(uniformScale - preset) < 0.01f
                         FilterChip(
                             selected = selected,
                             onClick = { viewModel.setAnimationScale(preset) },
