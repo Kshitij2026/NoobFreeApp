@@ -129,10 +129,8 @@ fun SettingsScreen(
                     icon = Icons.Outlined.PrivacyTip
                 ) {
                     Text(
-                        text = "• No INTERNET permission requested in AndroidManifest.xml.
-" +
-                            "• No analytics, trackers, or background daemons.
-" +
+                        text = "• No INTERNET permission requested in AndroidManifest.xml.\n" +
+                            "• No analytics, trackers, or background daemons.\n" +
                             "• Shizuku UserService enforces a strict command allow-list and terminates when unbound.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
