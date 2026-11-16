@@ -1,17 +1,8 @@
-NoobFree Admin Actions Sprint
-
-Changes:
-- Added direct Android app-details actions for active administrator packages.
-- Added Android package uninstall requests for active administrator packages.
-- Added discovery of installed apps with visible label/package containing "Halo", with app-details and uninstall-request actions.
-- Added Android Device Policy app-details and uninstall-request actions.
-- Added launch to Android device administrator settings.
-
-Safety/platform constraints:
-- These actions invoke Android's own system UI. They do not bypass Device Admin, Device Owner, Profile Owner, uninstall restrictions, or organization policy.
-- If Android Device Policy is Device Owner, Android will block ordinary uninstall. Authorized unenrollment is required.
-- A normal app cannot remove another app's Device Owner/Profile Owner status or silently deactivate its admin component.
-
-Verification:
-- Source edits applied and archive integrity checked.
-- Full Gradle/Android SDK build and physical-device test not run in this environment.
+NoobFree 1.1.0 source sprint
+- ZIP integrity: checked after packaging.
+- Android Gradle build: NOT run in this environment.
+- APK/device tests: NOT run.
+- Reset API: implemented behind active NoobFree legacy Device Admin check; Android may reject it.
+- Recovery reset: user-guided instructions only.
+- Developer Options: guided manual activation only; no policy bypass.
+- Glass styling: translucent theme surfaces + gradient background; confirm visually on tablet.

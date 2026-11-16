@@ -5,6 +5,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
@@ -47,16 +51,29 @@ class MainActivity : ComponentActivity() {
             var darkTheme by rememberSaveable { mutableStateOf(systemDark) }
 
             NoobFreeTheme(darkTheme = darkTheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                Box(
+                    modifier = Modifier.fillMaxSize().background(
+                        Brush.linearGradient(
+                            listOf(
+                                Color(0xFF101C35),
+                                Color(0xFF202044),
+                                Color(0xFF123B46),
+                                Color(0xFF101C35)
+                            )
+                        )
+                    )
                 ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color.Transparent
+                    ) {
                     val mainViewModel: MainViewModel = viewModel(factory = factory)
                     NoobFreeNavHost(
                         viewModel = mainViewModel,
                         darkTheme = darkTheme,
                         onToggleDarkTheme = { darkTheme = it }
                     )
+                    }
                 }
             }
         }

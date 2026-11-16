@@ -33,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +59,8 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
     var adminPackages by remember { mutableStateOf<List<String>>(emptyList()) }
     var haloPackages by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var showResetWarning by remember { mutableStateOf(false) }
+    var showRecoveryGuide by remember { mutableStateOf(false) }
+    var resetStatus by remember { mutableStateOf<String?>(null) }
 
     fun openAdminSettings() {
         val intent = Intent("android.settings.DEVICE_ADMIN_SETTINGS")
@@ -99,19 +102,24 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
             .onFailure { error = "Could not open Android administrator activation: ${it.localizedMessage}" }
     }
 
-    fun openFactoryResetSettings() {
-        val primary = Intent("android.settings.FACTORY_RESET")
-        val fallback = Intent(Settings.ACTION_SETTINGS)
-        runCatching {
-            primary.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(primary)
-        }.onFailure {
-            runCatching {
-                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(fallback)
-            }.onFailure { error = "Could not open reset settings: ${it.localizedMessage}" }
+    fun performAuthorizedReset() {
+        val component = ComponentName(context, com.noobfree.android.admin.NoobFreeAdminReceiver::class.java)
+        val dpm = context.getSystemService(DevicePolicyManager::class.java)
+        try {
+            if (dpm == null || !dpm.isAdminActive(component)) {
+                resetStatus = "NoobFree is not an active administrator. Activate it first, then retry. This still may not be permitted by your device's management policy."
+                return
+            }
+            @Suppress("DEPRECATION")
+            dpm.wipeData(0)
+            // Android takes over and erases the device if this administrator is authorized.
+        } catch (security: SecurityException) {
+            resetStatus = "Android rejected the reset request: ${security.localizedMessage ?: "administrator lacks wipe permission or device policy blocks it"}"
+        } catch (failure: Exception) {
+            resetStatus = "Reset could not be started: ${failure.localizedMessage ?: failure.javaClass.simpleName}"
         }
     }
+
 
     fun refresh() {
         val output = mutableListOf<InspectorFinding>()
@@ -221,17 +229,25 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
     if (showResetWarning) {
         AlertDialog(
             onDismissRequest = { showResetWarning = false },
-            title = { Text("Factory reset") },
-            text = { Text("A factory reset erases local apps, photos, downloads, accounts and settings. It may NOT remove Android Device Policy if the tablet is registered for automatic enterprise enrollment. Back up your data and confirm with the device owner or seller before proceeding.") },
+            title = { Text("Erase this tablet?") },
+            text = { Text("This permanently erases local apps, photos, downloads, accounts and settings. Back up everything first. Android may reject the request if NoobFree lacks the required administrator role or if another organization policy controls the device. A factory reset may also trigger automatic re-enrollment.") },
             confirmButton = {
-                Button(onClick = {
+                TextButton(onClick = {
                     showResetWarning = false
-                    openFactoryResetSettings()
-                }) { Text("Open reset settings") }
+                    performAuthorizedReset()
+                }) { Text("Request device wipe") }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showResetWarning = false }) { Text("Cancel") }
+                TextButton(onClick = { showResetWarning = false }) { Text("Cancel") }
             }
+        )
+    }
+    if (showRecoveryGuide) {
+        AlertDialog(
+            onDismissRequest = { showRecoveryGuide = false },
+            title = { Text("Recovery-mode reset guide") },
+            text = { Text("1. Back up photos and files first. 2. Power the tablet completely off. 3. Use the model's documented hardware-key combination to enter Android Recovery (the exact keys vary by Acer model). 4. Use volume keys to highlight Wipe data/factory reset and Power to select. 5. Confirm only if you own the device and accept data loss. 6. Reboot. A reset does not guarantee removal from Android zero-touch/enterprise enrollment; the tablet may re-enroll during setup. Contact the seller or enrollment administrator if that happens.") },
+            confirmButton = { TextButton(onClick = { showRecoveryGuide = false }) { Text("Close") } }
         )
     }
 
@@ -255,9 +271,13 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
                         Button(onClick = { requestNoobFreeAdmin() }, modifier = Modifier.fillMaxWidth()) {
                             Text("Make NoobFree a device admin")
                         }
-                        OutlinedButton(onClick = { showResetWarning = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Open factory reset options")
+                        Button(onClick = { showResetWarning = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Request in-app factory reset")
                         }
+                        OutlinedButton(onClick = { showRecoveryGuide = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Manual recovery-mode reset guide")
+                        }
+                        resetStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }

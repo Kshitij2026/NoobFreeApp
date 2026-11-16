@@ -16,6 +16,8 @@ import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DeveloperMode
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,6 +28,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +51,16 @@ fun DeveloperScreen(
     onBack: () -> Unit
 ) {
     val dev = uiState.developerOptions
+    val context = LocalContext.current
+    var showGuide by remember { mutableStateOf(false) }
+    if (showGuide) {
+        AlertDialog(
+            onDismissRequest = { showGuide = false },
+            title = { Text("Enable Developer Options manually") },
+            text = { Text("1. Open About tablet. 2. Find Build number (sometimes under Software information). 3. Tap Build number seven times. 4. Enter your screen-lock PIN if asked. 5. Return to System and open Developer options.\n\nNoobFree cannot simulate taps inside Settings or override an administrator's DISALLOW_DEBUGGING_FEATURES policy. If Build number is disabled or Android blocks activation, the device administrator must remove that restriction.") },
+            confirmButton = { TextButton(onClick = { showGuide = false }) { Text("Got it") } }
+        )
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -117,6 +136,26 @@ fun DeveloperScreen(
                     ) {
                         Text("Open Android Developer Options Screen")
                     }
+                }
+            }
+
+            item {
+                ControlCard(
+                    title = "Shizuku-independent setup",
+                    subtitle = "Manual activation and status guidance",
+                    icon = Icons.Outlined.DeveloperMode
+                ) {
+                    Text("NoobFree can guide you through Android's supported activation flow without Shizuku. It cannot perform the seven taps on another app's Settings screen or bypass a management restriction.", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = { showGuide = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Show 7-tap activation guide")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            runCatching { context.startActivity(Intent(Settings.ACTION_DEVICE_INFO_SETTINGS)) }
+                                .onFailure { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Open About tablet") }
                 }
             }
 
