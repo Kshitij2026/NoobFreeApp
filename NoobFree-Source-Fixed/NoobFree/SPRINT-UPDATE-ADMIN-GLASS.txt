@@ -1,0 +1,12 @@
+NoobFree sprint update: Admin controls and glass-style UI
+
+Added:
+- Privacy & Admin Inspector now has an Open Android admin settings action.
+- The action opens Android's device-admin settings screen and falls back to Security settings if unavailable.
+- This is a user-confirmed system-settings flow. NoobFree does not silently deactivate other apps' administrators.
+- Device Owner / Android Device Policy cannot be forcibly removed by an ordinary app. Use the authorized organization's unenrollment process.
+- Added a translucent, rounded glass-style card treatment to shared ControlCard components and the Privacy & Admin Inspector screen, plus a subtle gradient background.
+
+Verification:
+- Source-level change only. Full Gradle build and real-device UI verification have not yet been run in this environment.
+- After installing the build, test the admin-settings button on the Acer tablet. If Android Device Policy is Device Owner, the settings screen may prevent deactivation; that is expected platform behaviour.

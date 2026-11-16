@@ -4,6 +4,8 @@ import android.app.AppOpsManager
 import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.provider.Settings
 import android.os.Build
 import android.os.UserManager
 import android.view.accessibility.AccessibilityManager
@@ -13,12 +15,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.AdminPanelSettings
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -127,6 +137,20 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
         }
     }
 
+    fun openAdminSettings() {
+        val primary = Intent("android.settings.DEVICE_ADMIN_SETTINGS")
+        val fallback = Intent(Settings.ACTION_SECURITY_SETTINGS)
+        runCatching {
+            primary.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(primary)
+        }.onFailure {
+            runCatching {
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(fallback)
+            }.onFailure { error = "Android could not open administrator settings: ${it.localizedMessage}" }
+        }
+    }
+
     LaunchedEffect(Unit) { refresh() }
 
     Scaffold(topBar = {
@@ -137,22 +161,44 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
         )
     }) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize()
+                .background(Brush.verticalGradient(listOf(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    MaterialTheme.colorScheme.background,
+                    Color(0xFF7C4DFF).copy(alpha = 0.05f)
+                )))
+                .padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
-                Card {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("What this scan can and cannot tell you", fontWeight = FontWeight.SemiBold)
-                        Text("NoobFree reads information Android exposes to an ordinary app. A permission being granted does not prove it is actively being used. A policy not visible here may still be enforced through another mechanism.", style = MaterialTheme.typography.bodySmall)
+                Card(
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Outlined.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text("Device control centre", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        }
+                        Text("Review active administrators and device restrictions. For ordinary device-admin apps, Android provides a system screen where you can deactivate them yourself.", style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = { openAdminSettings() }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Outlined.OpenInNew, contentDescription = null)
+                            Text("Open Android admin settings", modifier = Modifier.padding(start = 8.dp))
+                        }
+                        Text("Important: NoobFree cannot silently deactivate another app's administrator, remove a Device Owner, or bypass an organization's policy. If Android Device Policy is Device Owner, use the organization's official unenrollment process.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             error?.let { msg -> item { Text(msg, color = MaterialTheme.colorScheme.error) } }
             items(findings) { finding ->
-                Card {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Card(
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(finding.title, fontWeight = FontWeight.SemiBold)
                         Text(finding.status, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                         Text(finding.explanation, style = MaterialTheme.typography.bodySmall)
