@@ -1,9 +1,17 @@
-Build status for this consolidated sprint candidate
+NoobFree Admin Actions Sprint
 
-- Source patches merged: V2.1 privilege/debloat patch, missing-return fix, uninstall/disable patch, wallpaper patch, compiler-error patch, and SettingsScreen syntax patch.
-- Added Privacy & Admin Inspector screen and home navigation entry.
-- Corrected Shizuku command allow-list so the package manager commands issued by PackageOperationManager are actually permitted while arbitrary shell commands remain blocked.
-- Added unit assertions for allowed package commands and command-injection rejection.
-- Static Kotlin parser check: no syntax/"expecting" diagnostics were emitted for the modified Compose/service files when checked without the Android dependency classpath.
-- Regex behaviour check: expected package commands match; command-injection examples do not.
-- Full Android Gradle build and physical-device testing have NOT been run in this environment because Gradle and the Android SDK are not installed here. GitHub Actions remains the required full build verification.
+Changes:
+- Added direct Android app-details actions for active administrator packages.
+- Added Android package uninstall requests for active administrator packages.
+- Added discovery of installed apps with visible label/package containing "Halo", with app-details and uninstall-request actions.
+- Added Android Device Policy app-details and uninstall-request actions.
+- Added launch to Android device administrator settings.
+
+Safety/platform constraints:
+- These actions invoke Android's own system UI. They do not bypass Device Admin, Device Owner, Profile Owner, uninstall restrictions, or organization policy.
+- If Android Device Policy is Device Owner, Android will block ordinary uninstall. Authorized unenrollment is required.
+- A normal app cannot remove another app's Device Owner/Profile Owner status or silently deactivate its admin component.
+
+Verification:
+- Source edits applied and archive integrity checked.
+- Full Gradle/Android SDK build and physical-device test not run in this environment.

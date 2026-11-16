@@ -3,9 +3,10 @@ package com.noobfree.android.ui
 import android.app.AppOpsManager
 import android.app.admin.DevicePolicyManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.UserManager
 import android.view.accessibility.AccessibilityManager
@@ -15,20 +16,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.AdminPanelSettings
-import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +51,39 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var findings by remember { mutableStateOf<List<InspectorFinding>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
+    val policyPackage = "com.google.android.apps.work.clouddpc"
+    var policyRole by remember { mutableStateOf("Checking management status…") }
+    var adminPackages by remember { mutableStateOf<List<String>>(emptyList()) }
+    var haloPackages by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    fun openAdminSettings() {
+        val intent = Intent("android.settings.DEVICE_ADMIN_SETTINGS")
+        runCatching { context.startActivity(intent) }
+            .onFailure { error = "Android admin settings could not be opened: ${it.localizedMessage}" }
+    }
+
+    fun openAppDetails(packageName: String) {
+        runCatching {
+            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }.onFailure { error = "Could not open app details for $packageName: ${it.localizedMessage}" }
+    }
+
+    fun requestUninstall(packageName: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName")))
+        }.onFailure { error = "Android did not allow an uninstall request for $packageName: ${it.localizedMessage}" }
+    }
+
+    fun openPolicyApp() {
+        val launch = context.packageManager.getLaunchIntentForPackage(policyPackage)
+        if (launch != null) {
+            runCatching { context.startActivity(launch) }.onFailure { error = "Could not open Android Device Policy: ${it.localizedMessage}" }
+        } else {
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$policyPackage")))
+            }.onFailure { error = "Android Device Policy app details could not be opened." }
+        }
+    }
 
     fun refresh() {
         val output = mutableListOf<InspectorFinding>()
@@ -65,6 +95,12 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
             } else {
                 @Suppress("DEPRECATION") pm.getInstalledApplications(0)
             }
+            haloPackages = installed.mapNotNull { app ->
+                val label = runCatching { pm.getApplicationLabel(app).toString() }.getOrDefault(app.packageName)
+                if (label.contains("halo", ignoreCase = true) || app.packageName.contains("halo", ignoreCase = true)) {
+                    label to app.packageName
+                } else null
+            }.distinctBy { it.second }.sortedBy { it.first.lowercase() }
             val overlayApps = installed.mapNotNull { app ->
                 val mode = runCatching {
                     @Suppress("DEPRECATION")
@@ -92,6 +128,21 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
 
             val dpm = context.getSystemService(DevicePolicyManager::class.java)
             val activeAdmins = runCatching { @Suppress("DEPRECATION") dpm?.activeAdmins.orEmpty() }.getOrDefault(emptyList())
+            val policyIsDeviceOwner = runCatching { dpm?.isDeviceOwnerApp(policyPackage) == true }.getOrDefault(false)
+            val policyIsProfileOwner = runCatching { dpm?.isProfileOwnerApp(policyPackage) == true }.getOrDefault(false)
+            val policyIsActiveAdmin = activeAdmins.any { it.packageName == policyPackage }
+            adminPackages = activeAdmins.map { it.packageName }.distinct().sorted()
+            policyRole = when {
+                policyIsDeviceOwner -> "Android Device Policy is Device Owner (fully managed device)"
+                policyIsProfileOwner -> "Android Device Policy is Profile Owner (managed work profile)"
+                policyIsActiveAdmin -> "Android Device Policy is an active legacy device administrator"
+                else -> "Android Device Policy role could not be confirmed from this app"
+            }
+            output += InspectorFinding(
+                "Google Android Device Policy role",
+                policyRole,
+                "This is a read-only check. Android does not let an ordinary app remove another app's administrator or clear Device Owner status."
+            )
             output += InspectorFinding(
                 "Active device administrators",
                 "${activeAdmins.size} active admin component(s) visible",
@@ -137,20 +188,6 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
         }
     }
 
-    fun openAdminSettings() {
-        val primary = Intent("android.settings.DEVICE_ADMIN_SETTINGS")
-        val fallback = Intent(Settings.ACTION_SECURITY_SETTINGS)
-        runCatching {
-            primary.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(primary)
-        }.onFailure {
-            runCatching {
-                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(fallback)
-            }.onFailure { error = "Android could not open administrator settings: ${it.localizedMessage}" }
-        }
-    }
-
     LaunchedEffect(Unit) { refresh() }
 
     Scaffold(topBar = {
@@ -161,44 +198,88 @@ fun PrivacyInspectorScreen(onBack: () -> Unit) {
         )
     }) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize()
-                .background(Brush.verticalGradient(listOf(
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                    MaterialTheme.colorScheme.background,
-                    Color(0xFF7C4DFF).copy(alpha = 0.05f)
-                )))
-                .padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
-                Card(
-                    shape = RoundedCornerShape(26.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Icon(Icons.Outlined.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Text("Device control centre", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Card(shape = RoundedCornerShape(22.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("Android Device Policy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(policyRole, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                        Text("If this is a personal device enrolled in legacy Device Admin mode, open Device Policy and look for Unregister. If it is Device Owner, Google documents that switching out of that mode requires an administrator-authorized reset; NoobFree cannot bypass that protection.", style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = { openPolicyApp() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Open Android Device Policy")
                         }
-                        Text("Review active administrators and device restrictions. For ordinary device-admin apps, Android provides a system screen where you can deactivate them yourself.", style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = { openAdminSettings() }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Outlined.OpenInNew, contentDescription = null)
-                            Text("Open Android admin settings", modifier = Modifier.padding(start = 8.dp))
+                        OutlinedButton(onClick = { openAppDetails(policyPackage) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Open Device Policy app details")
                         }
-                        Text("Important: NoobFree cannot silently deactivate another app's administrator, remove a Device Owner, or bypass an organization's policy. If Android Device Policy is Device Owner, use the organization's official unenrollment process.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = { requestUninstall(policyPackage) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Request uninstall of Device Policy")
+                        }
+                        OutlinedButton(onClick = { openAdminSettings() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Manage device administrators")
+                        }
+                        OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Recheck management status")
+                        }
+                        Text("Android decides whether these requests are allowed. If Device Policy is Device Owner, Android will block ordinary uninstall; use the official organization unenrollment route. NoobFree cannot override that protection.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            item {
+                Card(shape = RoundedCornerShape(22.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Administrator app actions", fontWeight = FontWeight.SemiBold)
+                        Text("These are direct Android system requests. Deactivate an ordinary administrator in Android settings before uninstalling it. Device Owner and organization-protected apps cannot be removed by an ordinary app.", style = MaterialTheme.typography.bodySmall)
+                        if (adminPackages.isEmpty()) {
+                            Text("No active administrator packages were returned. Refresh the scan to check again.", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            adminPackages.forEach { pkg ->
+                                HorizontalDivider()
+                                Text(pkg, fontWeight = FontWeight.Medium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { openAppDetails(pkg) }, modifier = Modifier.weight(1f)) { Text("App details") }
+                                    Button(onClick = { requestUninstall(pkg) }, modifier = Modifier.weight(1f)) { Text("Request uninstall") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Card(shape = RoundedCornerShape(22.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Halo apps found on this tablet", fontWeight = FontWeight.SemiBold)
+                        Text("NoobFree finds installed apps whose visible name or package contains Halo. Use Android's own uninstall confirmation. If policy blocks removal, the system will explain why.", style = MaterialTheme.typography.bodySmall)
+                        if (haloPackages.isEmpty()) {
+                            Text("No Halo-labelled apps were found in the installed-app list.", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            haloPackages.forEach { (label, pkg) ->
+                                HorizontalDivider()
+                                Text(label, fontWeight = FontWeight.Medium)
+                                Text(pkg, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { openAppDetails(pkg) }, modifier = Modifier.weight(1f)) { Text("App details") }
+                                    Button(onClick = { requestUninstall(pkg) }, modifier = Modifier.weight(1f)) { Text("Uninstall") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Card(shape = RoundedCornerShape(22.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("What this scan can and cannot tell you", fontWeight = FontWeight.SemiBold)
+                        Text("NoobFree reads information Android exposes to an ordinary app. A permission being granted does not prove it is actively being used. A policy not visible here may still be enforced through another mechanism.", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
             error?.let { msg -> item { Text(msg, color = MaterialTheme.colorScheme.error) } }
             items(findings) { finding ->
-                Card(
-                    shape = RoundedCornerShape(22.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Card {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(finding.title, fontWeight = FontWeight.SemiBold)
                         Text(finding.status, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                         Text(finding.explanation, style = MaterialTheme.typography.bodySmall)
