@@ -35,7 +35,7 @@ class PackageOperationManager(private val commandExecutor: CommandExecutor) {
         val verify = commandExecutor.execute("pm list packages -d $packageName", 5000L)
         val disabled = verify.stdout.lineSequence().any { it.trim() == "package:$packageName" }
         val success = result.isSuccess && (if (enabled) !disabled else disabled)
-        log(success, packageName, if (success) {
+        return log(success, packageName, if (success) {
             if (enabled) "Package enabled and verified." else "Package disabled for user 0 and verified."
         } else {
             "Operation could not be verified. ${result.stderr.ifBlank { verify.stderr }.ifBlank { "Check device policy and package eligibility." }}"
