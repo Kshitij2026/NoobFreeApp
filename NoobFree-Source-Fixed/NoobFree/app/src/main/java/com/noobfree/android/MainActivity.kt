@@ -120,7 +120,10 @@ private fun NoobFreeNavHost(
             )
         }
         composable("apps") {
-            AppManagementScreen(onBack = { navController.popBackStack() })
+            AppManagementScreen(
+                onBack = { navController.popBackStack() },
+                commandExecutor = (androidx.compose.ui.platform.LocalContext.current.applicationContext as NoobFreeApplication).shizukuRepository
+            )
         }
         composable("settings") {
             SettingsScreen(
